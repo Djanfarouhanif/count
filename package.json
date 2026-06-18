@@ -1,0 +1,10 @@
+{
+  "name": "mon-budget-fcfa",
+  "version": "1.0.0",
+  "description": "Gestion de finances personnelles (FCFA) — mini-serveur Node, données centralisées dans data.json",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}

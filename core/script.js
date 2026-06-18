@@ -1,9 +1,13 @@
 
 "use strict";
 /* ============================================================
-   STOCKAGE LOCAL
+   DONNÉES CENTRALISÉES — serveur Node + data.json
+   Rien n'est codé en dur : tout vit dans data.json, lu/écrit via
+   l'API (/api/data) du mini-serveur server.js.
+   DEFAULT_CATS / freshState ne servent QUE de secours si l'API
+   est injoignable (ex. fichier ouvert en file:// sans serveur).
 ============================================================ */
-const LS_KEY = "monbudget_v1";
+const API = "/api/data";
 const DEFAULT_CATS = [
   {id:"nourriture", name:"Nourriture",        icon:"🍚", color:"#0e9f6e", bucket:"besoins"},
   {id:"transport",  name:"Transport",         icon:"🚕", color:"#2f6fed", bucket:"besoins"},
@@ -26,21 +30,46 @@ function freshState(){
   };
 }
 
-let S = load();
-function load(){
-  try{
-    const raw = localStorage.getItem(LS_KEY);
-    if(!raw) return freshState();
-    const s = JSON.parse(raw);
-    // safety defaults
-    s.cats = s.cats && s.cats.length ? s.cats : DEFAULT_CATS;
-    s.rule = s.rule || {besoins:50, loisirs:30, epargne:20};
-    s.goals = s.goals || [];
-    s.tx = s.tx || [];
-    return s;
-  }catch(e){ return freshState(); }
+let S = null; // rempli au démarrage par load()
+
+function normalize(s){
+  s = s || {};
+  s.revenu = Number(s.revenu) || 0;
+  s.rule   = s.rule || {besoins:50, loisirs:30, epargne:20};
+  s.cats   = (s.cats && s.cats.length) ? s.cats : DEFAULT_CATS;
+  s.goals  = s.goals || [];
+  s.tx     = s.tx || [];
+  return s;
 }
-function save(){ localStorage.setItem(LS_KEY, JSON.stringify(S)); }
+
+// Lecture : récupère TOUTES les données depuis le serveur (data.json)
+async function load(){
+  try{
+    const res = await fetch(API, {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    return normalize(await res.json());
+  }catch(e){
+    console.warn("API injoignable — mode secours hors-ligne :", e.message);
+    return freshState();
+  }
+}
+
+// Écriture : renvoie l'état complet au serveur, qui réécrit data.json
+let saveSeq = 0;
+async function save(){
+  const mySeq = ++saveSeq;
+  try{
+    const res = await fetch(API, {
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(S)
+    });
+    if(!res.ok) throw new Error("HTTP "+res.status);
+  }catch(e){
+    console.warn("Sauvegarde échouée :", e.message);
+    if(mySeq === saveSeq) toast("⚠️ Sauvegarde impossible (serveur ?)");
+  }
+}
 
 /* ============================================================
    UTILITAIRES
@@ -459,7 +488,10 @@ function renderAll(){
   renderSaving();
   renderHistory();
 }
-// première saisie de catégorie pour l'écran ajouter
-renderCatGrid();
-renderAll();
+// Démarrage : on charge les données depuis le serveur AVANT d'afficher
+(async function init(){
+  S = await load();
+  renderCatGrid();
+  renderAll();
+})();
 

@@ -1,0 +1,12 @@
+# Configuration Netlify
+[build]
+  # Le site statique (HTML/CSS/JS) est dans le dossier core/
+  publish = "core"
+  # Les fonctions serverless sont dans netlify/functions/
+  functions = "netlify/functions"
+
+# Route l'appel /api/data du front vers la fonction serverless
+[[redirects]]
+  from = "/api/data"
+  to = "/.netlify/functions/data"
+  status = 200

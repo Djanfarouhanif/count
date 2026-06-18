@@ -10,13 +10,25 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- ÉCRAN DE VERROUILLAGE (code à 4 chiffres) -->
+<div id="lock" class="lock" style="display:flex;">
+  <div class="lock-inner">
+    <div class="lock-emoji">🔒</div>
+    <div class="lock-title" id="lockTitle">Mon Budget</div>
+    <div class="lock-sub" id="lockSub">Chargement…</div>
+    <div class="dots" id="lockDots"></div>
+    <div class="lockpad" id="lockPad"></div>
+    <button class="lock-skip" id="lockSkip" style="display:none;">Ignorer pour l'instant</button>
+  </div>
+</div>
+
 <div id="app">
   <div id="content">
   <!-- ================= ACCUEIL ================= -->
   <section class="screen active" id="screen-home">
-    <header class="top">
-      <h1 id="greet">Mon Budget</h1>
-      <div class="sub" id="monthLabel"></div>
+    <header class="top" style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div><h1 id="greet">Mon Budget</h1><div class="sub" id="monthLabel"></div></div>
+      <button id="lockBtn" class="iconbtn" aria-label="Code de sécurité">🔒</button>
     </header>
     <div style="padding:0 16px;">
       <div class="hero">

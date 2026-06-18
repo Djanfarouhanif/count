@@ -7,6 +7,7 @@ import { getStore } from "@netlify/blobs";
 
 // Données initiales au tout premier accès (équivalent du SEED de server.js)
 const SEED = {
+  pin: "",
   salaireMensuel: 300000,
   salaireDepuis: "",
   rule: { besoins: 50, loisirs: 30, epargne: 20 },

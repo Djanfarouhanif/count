@@ -20,6 +20,7 @@ const DEFAULT_CATS = [
 
 function freshState(){
   return {
+    pin: "",                 // code de verrouillage (vide = pas de code)
     salaireMensuel: 300000, // salaire crédité automatiquement chaque mois
     salaireDepuis: "",       // mois "YYYY-MM" à partir duquel le salaire est crédité
     rule: {besoins:50, loisirs:30, epargne:20},
@@ -38,6 +39,7 @@ let S = null; // rempli au démarrage par load()
 
 function normalize(s){
   s = s || {};
+  s.pin = typeof s.pin === "string" ? s.pin : "";
   // migration : ancien champ "revenu" -> "salaireMensuel"
   if(s.salaireMensuel === undefined && s.revenu !== undefined) s.salaireMensuel = s.revenu;
   s.salaireMensuel = Number(s.salaireMensuel) || 0;
@@ -861,11 +863,100 @@ function renderAll(){
   renderHistory();
   renderDebts();
 }
+/* ============================================================
+   VERROUILLAGE PAR CODE (pavé 0-9)
+============================================================ */
+const PIN_LEN = 4;
+let lockMode = "enter";   // "enter" | "create" | "confirm"
+let pinBuffer = "";
+let firstPin = "";
+
+function buildLockPad(){
+  const keys = ["1","2","3","4","5","6","7","8","9","","0","del"];
+  $("#lockPad").innerHTML = keys.map(k=>{
+    if(k==="")    return `<span></span>`;
+    if(k==="del") return `<button class="lk fn" data-k="del">⌫</button>`;
+    return `<button class="lk" data-k="${k}">${k}</button>`;
+  }).join("");
+  $$("#lockPad .lk").forEach(b=>b.addEventListener("click",()=>onLockKey(b.dataset.k)));
+}
+function renderDots(err){
+  let h="";
+  for(let i=0;i<PIN_LEN;i++) h+=`<div class="dot-pin${i<pinBuffer.length?' on':''}${err?' err':''}"></div>`;
+  $("#lockDots").innerHTML = h;
+}
+function updateLockUI(){
+  const t = {enter:"Entrez votre code", create:"Créez un code", confirm:"Confirmez le code"};
+  const s = {enter:"Code à 4 chiffres", create:"Choisissez 4 chiffres", confirm:"Retapez le même code"};
+  $("#lockTitle").textContent = t[lockMode];
+  $("#lockSub").textContent   = s[lockMode] || "";
+  $("#lockSkip").style.display = (lockMode==="create") ? "block" : "none";
+  renderDots();
+}
+function showLock(mode){
+  lockMode = mode; pinBuffer = ""; firstPin = "";
+  buildLockPad(); updateLockUI();
+  $("#lock").style.display = "flex";
+}
+function onLockKey(k){
+  if(k==="del"){ pinBuffer = pinBuffer.slice(0,-1); renderDots(); return; }
+  if(pinBuffer.length >= PIN_LEN) return;
+  pinBuffer += k; renderDots();
+  if(pinBuffer.length === PIN_LEN) setTimeout(submitPin, 140);
+}
+function wrongPin(msg){
+  renderDots(true);
+  $("#lockSub").textContent = msg;
+  if(navigator.vibrate) navigator.vibrate(180);
+  pinBuffer = "";
+  setTimeout(()=>{ renderDots(); }, 550);
+}
+function submitPin(){
+  if(lockMode==="enter"){
+    if(pinBuffer === S.pin) unlockApp();
+    else wrongPin("Code incorrect");
+  } else if(lockMode==="create"){
+    firstPin = pinBuffer; pinBuffer = ""; lockMode = "confirm"; updateLockUI();
+  } else { // confirm
+    if(pinBuffer === firstPin){
+      S.pin = firstPin; save();
+      unlockApp(); toast("Code enregistré 🔒");
+    } else {
+      firstPin = ""; lockMode = "create";
+      wrongPin("Les codes ne correspondent pas");
+      setTimeout(updateLockUI, 560);
+    }
+  }
+}
+function unlockApp(){
+  $("#lock").style.display = "none";
+  renderAll();
+}
+$("#lockSkip").addEventListener("click",()=>{ $("#lock").style.display="none"; renderAll(); });
+
+// Bouton 🔒 de l'accueil : activer / modifier / désactiver le code
+$("#lockBtn").addEventListener("click",()=>{
+  const has = !!(S.pin && S.pin.length);
+  openSheet(`
+    <h3>🔒 Code de sécurité</h3>
+    <div class="small">${has?"Un code est demandé à chaque ouverture de l'app.":"Aucun code actif. Active un code à 4 chiffres pour protéger l'accès à tes chiffres."}</div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="secChange">${has?"Modifier le code":"Activer un code"}</button>
+    ${has?`<div style="text-align:center;margin-top:12px;"><button class="danger-link" id="secOff">Désactiver le code</button></div>`:""}
+  `);
+  $("#secChange").addEventListener("click",()=>{ closeSheet(); showLock("create"); });
+  if(has) $("#secOff").addEventListener("click",()=>{ S.pin=""; save(); closeSheet(); toast("Code désactivé"); });
+});
+
 // Démarrage : on charge les données depuis le serveur AVANT d'afficher
 (async function init(){
   S = await load();
   if(ensureSalary()) save();   // crédite le salaire des mois écoulés
   renderCatGrid();
-  renderAll();
+  if(S.pin && S.pin.length){
+    showLock("enter");         // un code existe -> on le demande
+  } else {
+    showLock("create");        // pas encore de code -> on propose d'en créer un (avec « Ignorer »)
+  }
 })();
 

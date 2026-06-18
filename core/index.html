@@ -20,18 +20,31 @@
     </header>
     <div style="padding:0 16px;">
       <div class="hero">
-        <div class="label">Reste à vivre ce mois-ci</div>
-        <div class="big num" id="restAVivre">0 FCFA</div>
+        <div class="label">💰 Argent disponible (global)</div>
+        <div class="big num" id="soldeGlobal">0 FCFA</div>
         <div class="row">
-          <div class="pill"><div class="k">Revenu</div><div class="v num" id="heroRevenu">0</div></div>
-          <div class="pill"><div class="k">Dépensé</div><div class="v num" id="heroDepense">0</div></div>
+          <div class="pill"><div class="k">Entré ce mois</div><div class="v num" id="heroIncome">0</div></div>
+          <div class="pill"><div class="k">Dépensé ce mois</div><div class="v num" id="heroDepense">0</div></div>
         </div>
+      </div>
+
+      <div class="quick">
+        <button class="qbtn income" id="addIncome">＋ Revenu</button>
+        <button class="qbtn expense" id="quickExpense">－ Dépense</button>
       </div>
 
       <div id="untrackedAlert"></div>
 
       <div class="card">
-        <div class="section-title">Dernières dépenses <span class="link" id="goHistory">Tout voir</span></div>
+        <div class="section-title">Ce mois — <span id="moisCourant" style="font-weight:700;color:var(--muted)"></span></div>
+        <div class="mrow"><span class="ml">Revenu du mois</span><span class="mv num" id="mRevenu">0</span></div>
+        <div class="mrow"><span class="ml">Dépensé</span><span class="mv num neg" id="mDepense">0</span></div>
+        <div class="mrow"><span class="ml">Épargne mise de côté</span><span class="mv num" id="mEpargne">0</span></div>
+        <div class="mrow total"><span class="ml">Reste à vivre ce mois</span><span class="mv num" id="mReste">0</span></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">Derniers mouvements <span class="link" id="goHistory">Tout voir</span></div>
         <div id="recentList"></div>
       </div>
     </div>

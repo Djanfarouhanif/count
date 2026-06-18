@@ -20,10 +20,13 @@ const DEFAULT_CATS = [
 
 function freshState(){
   return {
-    revenu: 300000,
+    salaireMensuel: 300000, // salaire crédité automatiquement chaque mois
+    salaireDepuis: "",       // mois "YYYY-MM" à partir duquel le salaire est crédité
     rule: {besoins:50, loisirs:30, epargne:20},
     cats: DEFAULT_CATS,
-    tx: [],            // {id, amount, catId, note, date(ISO)}
+    income: [],        // rentrées d'argent {id, amount, note, date(ISO), auto?, month?}
+    tx: [],            // dépenses {id, amount, catId, note, date(ISO)}
+    savings: [],       // versements d'épargne {id, goalId, amount, date(ISO)}
     goals: [
       {id:"urgence", name:"Fonds d'urgence", target:600000, saved:0, due:""},
     ],
@@ -34,11 +37,17 @@ let S = null; // rempli au démarrage par load()
 
 function normalize(s){
   s = s || {};
-  s.revenu = Number(s.revenu) || 0;
+  // migration : ancien champ "revenu" -> "salaireMensuel"
+  if(s.salaireMensuel === undefined && s.revenu !== undefined) s.salaireMensuel = s.revenu;
+  s.salaireMensuel = Number(s.salaireMensuel) || 0;
+  s.salaireDepuis  = s.salaireDepuis || "";
   s.rule   = s.rule || {besoins:50, loisirs:30, epargne:20};
   s.cats   = (s.cats && s.cats.length) ? s.cats : DEFAULT_CATS;
-  s.goals  = s.goals || [];
-  s.tx     = s.tx || [];
+  s.income  = s.income || [];
+  s.savings = s.savings || [];
+  s.goals   = s.goals || [];
+  s.tx      = s.tx || [];
+  delete s.revenu;
   return s;
 }
 
@@ -97,9 +106,37 @@ function catById(id){ return S.cats.find(c=>c.id===id) || {name:"Autre",icon:"�
 
 function txOfMonth(yms){ return S.tx.filter(t=>txYM(t)===yms); }
 function totalOfMonth(yms){ return txOfMonth(yms).reduce((a,t)=>a+t.amount,0); }
+function incomeOfMonth(yms){ return S.income.filter(i=>i.date.slice(0,7)===yms).reduce((a,i)=>a+i.amount,0); }
+function savedOfMonth(yms){ return S.savings.filter(s=>s.date.slice(0,7)===yms).reduce((a,s)=>a+s.amount,0); }
+
+/* ----- ARGENT GLOBAL : tout en découle ----- */
+function sumIncome(){ return S.income.reduce((a,i)=>a+i.amount,0); }      // total encaissé (salaires + ponctuels)
+function sumExpenses(){ return S.tx.reduce((a,t)=>a+t.amount,0); }         // total dépensé
+function sumSaved(){ return S.goals.reduce((a,g)=>a+(g.saved||0),0); }     // total mis de côté (épargne)
+function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved(); } // argent réellement disponible
 
 function uid(){ return Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
 function todayISO(){ return new Date().toISOString(); }
+
+/* Crédite automatiquement le salaire pour chaque mois écoulé depuis
+   "salaireDepuis" jusqu'au mois courant (une seule entrée auto par mois). */
+function ensureSalary(){
+  if(!S.salaireMensuel || S.salaireMensuel<=0) return false;
+  if(!S.salaireDepuis) S.salaireDepuis = nowYM();
+  const cur = nowYM();
+  let [y,m] = S.salaireDepuis.split("-").map(Number);
+  let changed = false, guard = 0;
+  while(guard++ < 1200){
+    const yms = y+"-"+String(m).padStart(2,"0");
+    if(!S.income.some(i=>i.auto && i.month===yms)){
+      S.income.push({id:uid(), amount:S.salaireMensuel, note:"Salaire", date:yms+"-01T08:00:00.000Z", auto:true, month:yms});
+      changed = true;
+    }
+    if(yms===cur) break;
+    m++; if(m>12){m=1;y++;}
+  }
+  return changed;
+}
 
 /* ============================================================
    NAVIGATION
@@ -120,35 +157,75 @@ $$(".tabbar button").forEach(b=>{
   });
 });
 $("#goHistory").addEventListener("click",()=>show("history"));
+$("#addIncome").addEventListener("click",()=>openAddIncome());
+$("#quickExpense").addEventListener("click",()=>{ resetAddForm(); show("add"); setTimeout(()=>$("#amountBig").focus(),120); });
 
 /* ============================================================
    ACCUEIL
 ============================================================ */
 function renderHome(){
   const cur = nowYM();
-  const depense = totalOfMonth(cur);
-  const reste = S.revenu - depense;
-  $("#monthLabel").textContent = "Mois de "+monthName(cur);
-  $("#restAVivre").textContent = fmtF(reste);
-  $("#heroRevenu").textContent = fmt(S.revenu);
-  $("#heroDepense").textContent = fmt(depense);
+  const solde   = soldeGlobal();
+  const revMois = incomeOfMonth(cur);
+  const depMois = totalOfMonth(cur);
+  const epaMois = savedOfMonth(cur);
+  const resteMois = revMois - depMois - epaMois;
 
-  // "non tracé": fixes connues attendues vs réellement saisi → on montre simplement le reste non dépensé
-  // Message-clé de l'app : rendre visible l'argent non encore tracé.
+  $("#monthLabel").textContent = "Argent suivi globalement";
+  $("#moisCourant").textContent = monthName(cur);
+
+  // hero : solde global réellement disponible
+  const heroEl = $("#soldeGlobal");
+  heroEl.textContent = fmtF(solde);
+  heroEl.style.color = solde < 0 ? "#ffe1de" : "#fff";
+  $("#heroIncome").textContent = fmt(revMois);
+  $("#heroDepense").textContent = fmt(depMois);
+
+  // carte du mois
+  $("#mRevenu").textContent  = fmt(revMois);
+  $("#mDepense").textContent = fmt(depMois);
+  $("#mEpargne").textContent = fmt(epaMois);
+  const resteEl = $("#mReste");
+  resteEl.textContent = fmtF(resteMois);
+  resteEl.style.color = resteMois < 0 ? "var(--red)" : "var(--green)";
+
+  // alerte : tout est rapporté à l'argent global
   const box = $("#untrackedAlert");
-  if(reste < 0){
-    box.innerHTML = `<div class="alert bad"><span class="ico">🚨</span><div>Dépassement&nbsp;: tu as dépensé <span class="amt">${fmtF(-reste)}</span> de plus que ton revenu.</div></div>`;
-  } else if(depense===0){
-    box.innerHTML = `<div class="alert warn"><span class="ico">👀</span><div>Aucune dépense saisie ce mois. <span class="amt">${fmtF(S.revenu)}</span> à suivre — note ta première dépense&nbsp;!</div></div>`;
+  if(solde < 0){
+    box.innerHTML = `<div class="alert bad"><span class="ico">🚨</span><div>Solde négatif&nbsp;: tu as engagé <span class="amt">${fmtF(-solde)}</span> de plus que ce que tu possèdes.</div></div>`;
+  } else if(revMois>0 && resteMois < 0){
+    box.innerHTML = `<div class="alert warn"><span class="ico">⚠️</span><div>Ce mois tu as dépensé/épargné <span class="amt">${fmtF(-resteMois)}</span> de plus que ton revenu du mois — tu puises dans tes réserves.</div></div>`;
+  } else if(depMois===0 && epaMois===0){
+    box.innerHTML = `<div class="alert warn"><span class="ico">👀</span><div>Rien de saisi ce mois. Note chaque dépense pour voir où part ton argent.</div></div>`;
   } else {
-    box.innerHTML = `<div class="alert ${reste < S.revenu*0.15 ? 'warn':'ok'}"><span class="ico">${reste < S.revenu*0.15?'⚠️':'✅'}</span><div>Il reste <span class="amt">${fmtF(reste)}</span> non dépensés ce mois. Continue à tout noter pour savoir où ils partent.</div></div>`;
+    box.innerHTML = `<div class="alert ok"><span class="ico">✅</span><div>Il te reste <span class="amt">${fmtF(resteMois)}</span> à vivre ce mois, et <span class="amt">${fmtF(solde)}</span> au total.</div></div>`;
   }
 
-  // dernières transactions (5)
-  const recent = [...txOfMonth(cur)].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
-  $("#recentList").innerHTML = recent.length ? recent.map(txRow).join("")
-    : `<div class="empty">Aucune dépense pour l'instant.<br>Touche le bouton <b>+</b> pour commencer.</div>`;
+  // derniers mouvements (revenus + dépenses mêlés)
+  const mv = movements().slice(0,8);
+  $("#recentList").innerHTML = mv.length ? mv.map(m=>m.kind==="in"?incomeRow(m):txRow(m)).join("")
+    : `<div class="empty">Aucun mouvement pour l'instant.<br>Ajoute un revenu ou une dépense.</div>`;
   bindTxRows("#recentList");
+  bindIncomeRows("#recentList");
+}
+
+// liste unifiée revenus + dépenses, triée du plus récent au plus ancien
+function movements(){
+  const inc = S.income.map(i=>({...i, kind:"in"}));
+  const out = S.tx.map(t=>({...t, kind:"out"}));
+  return [...inc,...out].sort((a,b)=>b.date.localeCompare(a.date));
+}
+function incomeRow(i){
+  const d = new Date(i.date);
+  const when = `${String(d.getDate()).padStart(2,"0")} ${MONTHS[d.getMonth()].slice(0,4)}.${i.auto?" · auto":""}`;
+  return `<div class="tx in" data-inid="${i.id}">
+    <div class="av" style="background:#0e9f6e22;">${i.auto?"💼":"💵"}</div>
+    <div class="meta"><div class="t">${escapeHtml(i.note||"Revenu")}</div><div class="s">${when}</div></div>
+    <div class="val num">+${fmt(i.amount)}</div>
+  </div>`;
+}
+function bindIncomeRows(sel){
+  $$(sel+" .tx.in").forEach(row=>row.addEventListener("click",()=>openIncomeSheet(row.dataset.inid)));
 }
 
 function txRow(t){
@@ -164,7 +241,7 @@ function txRow(t){
 function escapeHtml(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 
 function bindTxRows(sel){
-  $$(sel+" .tx").forEach(row=>{
+  $$(sel+" .tx:not(.in)").forEach(row=>{
     row.addEventListener("click",()=>openTxSheet(row.dataset.id));
   });
 }
@@ -218,18 +295,18 @@ function renderBudget(){
   const txs = txOfMonth(cur);
 
   // buckets selon catégorie
+  const revMois = incomeOfMonth(cur); // revenu réel du mois = salaire + revenus ponctuels
   const spent = {besoins:0, loisirs:0, epargne:0};
   txs.forEach(t=>{ const b=catById(t.catId).bucket||"loisirs"; spent[b]+=t.amount; });
-  // épargne réelle = somme ajoutée aux objectifs ce serait complexe; on prend le "reste" comme épargne potentielle
+  spent.epargne = savedOfMonth(cur); // épargne réellement mise de côté ce mois
   const budgets = {
-    besoins: S.revenu*S.rule.besoins/100,
-    loisirs: S.revenu*S.rule.loisirs/100,
-    epargne: S.revenu*S.rule.epargne/100,
+    besoins: revMois*S.rule.besoins/100,
+    loisirs: revMois*S.rule.loisirs/100,
+    epargne: revMois*S.rule.epargne/100,
   };
-  const labels = {besoins:"Besoins (50%)", loisirs:"Loisirs (30%)", epargne:"Épargne (20%)"};
+  const labels = {besoins:"Besoins", loisirs:"Loisirs", epargne:"Épargne"};
   $("#ruleBars").innerHTML = ["besoins","loisirs","epargne"].map(k=>{
-    const used = k==="epargne" ? Math.max(0, S.revenu-spent.besoins-spent.loisirs) : spent[k];
-    return progBar(labels[k].replace(/\((\d+)%\)/,`(${S.rule[k]||0}%)`), used, budgets[k], k==="epargne");
+    return progBar(`${labels[k]} (${S.rule[k]||0}%)`, spent[k], budgets[k], k==="epargne");
   }).join("");
 
   // par catégorie de dépense (budget = part du bucket / nb cat? -> on montre dépense vs un repère simple)
@@ -264,8 +341,11 @@ function progBar(name, used, budget, isSaving){
    ÉPARGNE / OBJECTIFS
 ============================================================ */
 function renderSaving(){
-  // auto: fonds d'urgence cible = 6 × dépenses moyennes (basé sur revenu si pas d'historique)
-  $("#goalsList").innerHTML = S.goals.map(g=>{
+  const summary = `<div class="card">
+    <div class="mrow"><span class="ml">Total épargné</span><span class="mv num">${fmtF(sumSaved())}</span></div>
+    <div class="mrow total"><span class="ml">Argent encore disponible</span><span class="mv num" style="color:${soldeGlobal()<0?'var(--red)':'var(--green)'}">${fmtF(soldeGlobal())}</span></div>
+  </div>`;
+  $("#goalsList").innerHTML = summary + S.goals.map(g=>{
     const pct = g.target>0 ? Math.min(100,Math.round(g.saved/g.target*100)) : 0;
     return `<div class="card goal" data-id="${g.id}">
       <div class="gline"><span class="gname">${g.name}</span><span class="gpct">${pct}%</span></div>
@@ -393,11 +473,58 @@ function openTxSheet(id){
   });
 }
 
+/* ----- Revenus : ajout ponctuel + édition ----- */
+function openAddIncome(){
+  openSheet(`
+    <h3>＋ Entrée d'argent</h3>
+    <div class="small">Prime, vente, cadeau, salaire exceptionnel… Ça augmente ton argent disponible.</div>
+    <label class="fld">Montant (FCFA)</label>
+    <input id="inAmt" inputmode="numeric" placeholder="0" />
+    <label class="fld">Note (optionnel)</label>
+    <input id="inNote" placeholder="ex : prime, vente téléphone" />
+    <div style="height:14px;"></div>
+    <button class="btn" id="inSave">Ajouter le revenu</button>
+  `);
+  $("#inAmt").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
+  setTimeout(()=>$("#inAmt").focus(),120);
+  $("#inSave").addEventListener("click",()=>{
+    const amt=Number($("#inAmt").value.replace(/\D/g,""));
+    if(!amt){shake($("#inAmt"));return;}
+    S.income.push({id:uid(), amount:amt, note:$("#inNote").value.trim()||"Revenu", date:todayISO()});
+    save();closeSheet();toast("Revenu ajouté 💵");renderAll();
+  });
+}
+function openIncomeSheet(id){
+  const i=S.income.find(x=>x.id===id); if(!i)return;
+  openSheet(`
+    <h3>${i.auto?"💼 Salaire":"💵 Revenu"}</h3>
+    <div class="small">${new Date(i.date).toLocaleDateString("fr-FR")}${i.auto?" · crédité automatiquement":""}</div>
+    <label class="fld">Montant (FCFA)</label>
+    <input id="inEdAmt" inputmode="numeric" value="${fmt(i.amount)}" />
+    <label class="fld">Note</label>
+    <input id="inEdNote" value="${escapeHtml(i.note||"")}" />
+    <div style="height:16px;"></div>
+    <button class="btn" id="inEdSave">Enregistrer</button>
+    <div style="text-align:center;margin-top:12px;"><button class="danger-link" id="inEdDel">🗑 Supprimer ce revenu</button></div>
+  `);
+  $("#inEdAmt").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
+  $("#inEdSave").addEventListener("click",()=>{
+    const amt=Number($("#inEdAmt").value.replace(/\D/g,""));
+    if(!amt){shake($("#inEdAmt"));return;}
+    i.amount=amt; i.note=$("#inEdNote").value.trim()||"Revenu";
+    save();closeSheet();toast("Modifié ✅");renderAll();
+  });
+  $("#inEdDel").addEventListener("click",()=>{
+    S.income=S.income.filter(x=>x.id!==id);save();closeSheet();toast("Supprimé");renderAll();
+  });
+}
+
 $("#editBudget").addEventListener("click",()=>{
   openSheet(`
     <h3>Modifier le budget</h3>
-    <label class="fld">Revenu mensuel (FCFA)</label>
-    <input id="bRev" inputmode="numeric" value="${fmt(S.revenu)}" />
+    <label class="fld">Salaire mensuel (FCFA)</label>
+    <input id="bRev" inputmode="numeric" value="${fmt(S.salaireMensuel)}" />
+    <div class="small">Crédité automatiquement chaque mois sur ton argent global.</div>
     <label class="fld">Besoins (%)</label>
     <input id="bBes" inputmode="numeric" value="${S.rule.besoins}" />
     <label class="fld">Loisirs (%)</label>
@@ -413,27 +540,40 @@ $("#editBudget").addEventListener("click",()=>{
     $("#bSum").textContent=`Total : ${t}%`+(t!==100?" — devrait faire 100%":" ✅"); $("#bSum").style.color=t!==100?"#ef4444":"#0e9f6e";};
   ["bBes","bLoi","bEpa"].forEach(id=>$("#"+id).addEventListener("input",sum)); sum();
   $("#bSave").addEventListener("click",()=>{
-    S.revenu=Number($("#bRev").value.replace(/\D/g,""))||0;
+    const newSal = Number($("#bRev").value.replace(/\D/g,""))||0;
+    S.salaireMensuel = newSal;
     S.rule={besoins:+$("#bBes").value||0,loisirs:+$("#bLoi").value||0,epargne:+$("#bEpa").value||0};
+    // met à jour le salaire déjà crédité pour le mois courant, puis crédite les mois manquants
+    const cur = nowYM();
+    const curAuto = S.income.find(i=>i.auto && i.month===cur);
+    if(curAuto) curAuto.amount = newSal;
+    ensureSalary();
     save();closeSheet();toast("Budget mis à jour");renderAll();
   });
 });
 
 function openAddToGoal(id){
   const g=S.goals.find(x=>x.id===id);if(!g)return;
+  const dispo = soldeGlobal();
   openSheet(`
-    <h3>Ajouter à « ${g.name} »</h3>
+    <h3>Mettre de côté pour « ${g.name} »</h3>
     <div class="small">Déjà épargné : ${fmtF(g.saved)} / ${fmtF(g.target)}</div>
-    <label class="fld">Montant à ajouter (FCFA)</label>
+    <div class="small">Argent disponible : <b>${fmtF(dispo)}</b> — l'épargne sera déduite de ton solde global.</div>
+    <label class="fld">Montant à mettre de côté (FCFA)</label>
     <input id="gAdd" inputmode="numeric" placeholder="0" />
     <div style="height:14px;"></div>
-    <button class="btn" id="gAddSave">Ajouter</button>
+    <button class="btn" id="gAddSave">Mettre de côté</button>
   `);
   $("#gAdd").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
+  setTimeout(()=>$("#gAdd").focus(),120);
   $("#gAddSave").addEventListener("click",()=>{
     const v=Number($("#gAdd").value.replace(/\D/g,""));
     if(!v){shake($("#gAdd"));return;}
-    g.saved+=v;save();closeSheet();toast("Épargne ajoutée 🎉");renderAll();
+    g.saved += v;
+    S.savings.push({id:uid(), goalId:g.id, amount:v, date:todayISO()});
+    save();closeSheet();
+    toast(v>dispo ? "Épargné — solde global négatif ⚠️" : "Épargne ajoutée 🎉");
+    renderAll();
   });
 }
 function openEditGoal(id){
@@ -491,6 +631,7 @@ function renderAll(){
 // Démarrage : on charge les données depuis le serveur AVANT d'afficher
 (async function init(){
   S = await load();
+  if(ensureSalary()) save();   // crédite le salaire des mois écoulés
   renderCatGrid();
   renderAll();
 })();

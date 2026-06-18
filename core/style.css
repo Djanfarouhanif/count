@@ -74,6 +74,25 @@
   .hero .pill .k{font-size:11px;opacity:.9;}
   .hero .pill .v{font-size:16px;font-weight:700;margin-top:2px;}
 
+  /* quick actions home */
+  .quick{display:flex;gap:10px;margin-bottom:14px;}
+  .qbtn{flex:1;border:0;border-radius:14px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:var(--shadow);}
+  .qbtn:active{transform:scale(.99);}
+  .qbtn.income{background:var(--green-soft);color:#0a6b4a;}
+  .qbtn.expense{background:var(--red-soft);color:#b42318;}
+
+  /* month summary rows */
+  .mrow{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:14px;}
+  .mrow .ml{color:var(--muted);font-weight:600;}
+  .mrow .mv{font-weight:700;font-variant-numeric:tabular-nums;}
+  .mrow .mv.neg{color:var(--red);}
+  .mrow.total{border-top:1px solid var(--line);margin-top:4px;padding-top:12px;}
+  .mrow.total .ml{color:var(--ink);font-weight:800;}
+  .mrow.total .mv{font-size:18px;font-weight:800;}
+
+  /* income movement row */
+  .tx.in .val{color:var(--green);}
+
   .alert{
     border-radius:16px;padding:14px 16px;margin-bottom:14px;display:flex;gap:12px;align-items:center;
     font-size:14px;font-weight:600;

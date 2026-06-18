@@ -20,7 +20,8 @@ const PORT       = process.env.PORT || 3000;
    C'est l'UNIQUE endroit où vivent les valeurs par défaut ; ensuite
    tout est lu/écrit dans data.json. */
 const SEED = {
-  revenu: 300000,
+  salaireMensuel: 300000,
+  salaireDepuis: "",
   rule: { besoins: 50, loisirs: 30, epargne: 20 },
   cats: [
     { id: "nourriture", name: "Nourriture",      icon: "🍚", color: "#0e9f6e", bucket: "besoins" },
@@ -31,7 +32,9 @@ const SEED = {
     { id: "imprevus",   name: "Imprévus",        icon: "⚡", color: "#ef4444", bucket: "loisirs" },
     { id: "autre",      name: "Autre",           icon: "🧾", color: "#7a8a99", bucket: "loisirs" }
   ],
+  income: [],
   tx: [],
+  savings: [],
   goals: [
     { id: "urgence", name: "Fonds d'urgence", target: 600000, saved: 0, due: "" }
   ]

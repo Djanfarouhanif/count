@@ -35,7 +35,8 @@ function freshState(){
   };
 }
 
-let S = null; // rempli au démarrage par load()
+let S = null;            // rempli au démarrage par load()
+let dataLoaded = false;  // true si les données ont bien été chargées depuis le serveur
 
 function normalize(s){
   s = s || {};
@@ -61,9 +62,12 @@ async function load(){
   try{
     const res = await fetch(API, {cache:"no-store"});
     if(!res.ok) throw new Error("HTTP "+res.status);
-    return normalize(await res.json());
+    const data = normalize(await res.json());
+    dataLoaded = true;
+    return data;
   }catch(e){
     console.warn("API injoignable — mode secours hors-ligne :", e.message);
+    dataLoaded = false;
     return freshState();
   }
 }
@@ -951,6 +955,19 @@ $("#lockBtn").addEventListener("click",()=>{
 // Démarrage : on charge les données depuis le serveur AVANT d'afficher
 (async function init(){
   S = await load();
+
+  if(!dataLoaded){
+    // serveur non joint : on n'affiche PAS « créez un code » (trompeur), mais un message clair
+    $("#lockTitle").textContent = "Hors ligne";
+    $("#lockSub").textContent = "Serveur non joint. Ouvre l'app via http://localhost:3000 (et garde « node server.js » lancé).";
+    $("#lockDots").innerHTML = "";
+    $("#lockPad").innerHTML = `<button class="lk fn" id="lockRetry" style="grid-column:1/4;">↻ Réessayer</button>`;
+    $("#lockRetry").addEventListener("click",()=>location.reload());
+    $("#lockSkip").style.display = "none";
+    $("#lock").style.display = "flex";
+    return;
+  }
+
   if(ensureSalary()) save();   // crédite le salaire des mois écoulés
   renderCatGrid();
   if(S.pin && S.pin.length){

@@ -27,16 +27,16 @@ function freshState(){
     cats: DEFAULT_CATS,
     income: [],        // rentrées d'argent {id, amount, note, date(ISO), auto?, month?}
     tx: [],            // dépenses {id, amount, catId, note, date(ISO)}
-    savings: [],       // versements d'épargne {id, goalId, amount, date(ISO)}
+    savings: [],       // mouvements d'épargne {id, target:"reserve"|goalId, amount(+/-), date(ISO)}
+    reserve: 0,        // épargne de sécurité = réserve libre (sans cible)
     debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
-    goals: [
-      {id:"urgence", name:"Fonds d'urgence", target:600000, saved:0, due:""},
-    ],
+    goals: [],         // objectifs d'achat {id, name, target, saved, due}
   };
 }
 
 let S = null;            // rempli au démarrage par load()
 let dataLoaded = false;  // true si les données ont bien été chargées depuis le serveur
+let needsSave = false;   // true si normalize a fait une migration à persister
 
 function normalize(s){
   s = s || {};
@@ -53,6 +53,15 @@ function normalize(s){
   s.debts   = s.debts || [];
   s.goals   = s.goals || [];
   s.tx      = s.tx || [];
+  // migration : sépare l'épargne de sécurité (réserve) des objectifs d'achat.
+  // L'ancien « Fonds d'urgence » devient la réserve de sécurité.
+  if(s.reserve === undefined){
+    s.reserve = 0;
+    const i = s.goals.findIndex(g=>g.id==="urgence");
+    if(i>=0){ s.reserve += Number(s.goals[i].saved)||0; s.goals.splice(i,1); }
+    needsSave = true;
+  }
+  s.reserve = Number(s.reserve) || 0;
   delete s.revenu;
   return s;
 }
@@ -121,7 +130,7 @@ function savedOfMonth(yms){ return S.savings.filter(s=>s.date.slice(0,7)===yms).
 /* ----- ARGENT GLOBAL : tout en découle ----- */
 function sumIncome(){ return S.income.reduce((a,i)=>a+i.amount,0); }      // total encaissé (salaires + ponctuels)
 function sumExpenses(){ return S.tx.reduce((a,t)=>a+t.amount,0); }         // total dépensé
-function sumSaved(){ return S.goals.reduce((a,g)=>a+(g.saved||0),0); }     // total mis de côté (épargne)
+function sumSaved(){ return (S.reserve||0) + S.goals.reduce((a,g)=>a+(g.saved||0),0); } // réserve sécurité + objectifs
 // dettes payées = argent sorti ; créances reçues = argent entré (seulement quand réglées)
 function sumDettesPayees(){ return S.debts.filter(d=>d.type==="dette" && d.settled).reduce((a,d)=>a+d.amount,0); }
 function sumCreancesRecues(){ return S.debts.filter(d=>d.type==="creance" && d.settled).reduce((a,d)=>a+d.amount,0); }
@@ -451,15 +460,16 @@ function progBar(name, used, budget, isSaving){
    ÉPARGNE / OBJECTIFS
 ============================================================ */
 function renderSaving(){
-  const summary = `<div class="card">
-    <div class="mrow"><span class="ml">Total épargné</span><span class="mv num">${fmtF(sumSaved())}</span></div>
-    <div class="mrow total"><span class="ml">Argent encore disponible</span><span class="mv num" style="color:${soldeGlobal()<0?'var(--red)':'var(--green)'}">${fmtF(soldeGlobal())}</span></div>
-  </div>`;
-  $("#goalsList").innerHTML = summary + S.goals.map(g=>{
+  // épargne de sécurité (réserve libre)
+  $("#reserveBig").textContent = fmtF(S.reserve||0);
+  $("#reserveInfo").textContent = `Disponible à mettre de côté : ${fmtF(Math.max(0,soldeGlobal()))}`;
+
+  // objectifs d'achat
+  $("#goalsList").innerHTML = S.goals.length ? S.goals.map(g=>{
     const pct = g.target>0 ? Math.min(100,Math.round(g.saved/g.target*100)) : 0;
     return `<div class="card goal" data-id="${g.id}">
       <div class="gline"><span class="gname">${g.name}</span><span class="gpct">${pct}%</span></div>
-      <div class="bar ${pct>=100?'':''}"><span style="width:${pct}%"></span></div>
+      <div class="bar"><span style="width:${pct}%"></span></div>
       <div class="gsub"><span>${fmtF(g.saved)} épargnés</span><span>Objectif&nbsp;: ${fmtF(g.target)}</span></div>
       ${g.due?`<div class="small" style="margin-top:6px;">🎯 Échéance : ${g.due}</div>`:""}
       <div style="display:flex;gap:8px;margin-top:12px;">
@@ -467,7 +477,7 @@ function renderSaving(){
         <button class="btn sm ghost" data-act="edit" style="flex:1;">Modifier</button>
       </div>
     </div>`;
-  }).join("") || `<div class="empty">Aucun objectif. Ajoute ton fonds d'urgence 🛡️</div>`;
+  }).join("") : `<div class="empty">Aucun objectif d'achat. Ajoute-en un 🎯</div>`;
 
   $$("#goalsList .goal").forEach(card=>{
     const id=card.dataset.id;
@@ -476,6 +486,41 @@ function renderSaving(){
   });
 }
 $("#addGoal").addEventListener("click",()=>openEditGoal(null));
+
+/* ----- Épargne de sécurité : réserve libre (ajouter / retirer) ----- */
+function openReserve(sense){
+  const isAdd = sense==="add";
+  const dispo = soldeGlobal();
+  openSheet(`
+    <h3>${isAdd?"＋ Ajouter à la réserve":"－ Retirer de la réserve"}</h3>
+    <div class="small">${isAdd
+      ? `Argent disponible : <b>${fmtF(dispo)}</b>. Le montant sera mis à l'abri (retiré du disponible).`
+      : `Réserve actuelle : <b>${fmtF(S.reserve||0)}</b>. Le montant retiré revient dans ton disponible.`}</div>
+    <label class="fld">Montant (FCFA)</label>
+    <input id="rsAmt" inputmode="numeric" placeholder="0" />
+    <div style="height:14px;"></div>
+    <button class="btn" id="rsSave">${isAdd?"Mettre de côté":"Retirer"}</button>
+  `);
+  $("#rsAmt").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
+  setTimeout(()=>$("#rsAmt").focus(),120);
+  $("#rsSave").addEventListener("click",()=>{
+    let v=Number($("#rsAmt").value.replace(/\D/g,""));
+    if(!v){shake($("#rsAmt"));return;}
+    if(isAdd){
+      S.reserve=(S.reserve||0)+v;
+      S.savings.push({id:uid(), target:"reserve", amount:v, date:todayISO()});
+      toast(v>dispo?"Mis de côté — solde global négatif ⚠️":"Mis en sécurité 🛡️");
+    } else {
+      v=Math.min(v, S.reserve||0);
+      S.reserve=(S.reserve||0)-v;
+      S.savings.push({id:uid(), target:"reserve", amount:-v, date:todayISO()});
+      toast("Retiré de la réserve");
+    }
+    save();closeSheet();renderAll();
+  });
+}
+$("#reserveAdd").addEventListener("click",()=>openReserve("add"));
+$("#reserveSub").addEventListener("click",()=>openReserve("sub"));
 
 /* ============================================================
    DETTES & CRÉANCES
@@ -818,7 +863,7 @@ function openEditGoal(id){
   const g = id ? S.goals.find(x=>x.id===id) : {name:"",target:0,saved:0,due:""};
   const isNew = !id;
   openSheet(`
-    <h3>${isNew?"Nouvel objectif":"Modifier l'objectif"}</h3>
+    <h3>${isNew?"Nouvel objectif d'achat":"Modifier l'objectif"}</h3>
     <label class="fld">Nom</label>
     <input id="gName" value="${escapeHtml(g.name)}" placeholder="ex : Achat moto" />
     <label class="fld">Montant cible (FCFA)</label>
@@ -968,7 +1013,7 @@ $("#lockBtn").addEventListener("click",()=>{
     return;
   }
 
-  if(ensureSalary()) save();   // crédite le salaire des mois écoulés
+  if(ensureSalary() || needsSave) save();   // crédite le salaire + persiste la migration
   renderCatGrid();
   if(S.pin && S.pin.length){
     showLock("enter");         // un code existe -> on le demande

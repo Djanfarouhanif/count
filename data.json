@@ -98,16 +98,21 @@
       "date": "2026-06-18T16:50:12.597Z"
     }
   ],
-  "savings": [],
-  "goals": [
+  "savings": [
     {
-      "id": "urgence",
-      "name": "Fonds d'urgence",
-      "target": 600000,
-      "saved": 0,
-      "due": ""
+      "id": "mqjsati2786",
+      "target": "reserve",
+      "amount": 100000,
+      "date": "2026-06-18T17:39:02.234Z"
+    },
+    {
+      "id": "mqjsbhq012a",
+      "target": "reserve",
+      "amount": 100000,
+      "date": "2026-06-18T17:39:33.624Z"
     }
   ],
+  "goals": [],
   "debts": [
     {
       "id": "mqjqlljo2v0",
@@ -129,5 +134,6 @@
       "settled": true,
       "settledDate": "2026-06-18T16:53:12.987Z"
     }
-  ]
+  ],
+  "reserve": 200000
 }

@@ -23,10 +23,9 @@ const SEED = {
   income: [],
   tx: [],
   savings: [],
+  reserve: 0,
   debts: [],
-  goals: [
-    { id: "urgence", name: "Fonds d'urgence", target: 600000, saved: 0, due: "" }
-  ]
+  goals: []
 };
 
 export default async (req) => {

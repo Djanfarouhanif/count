@@ -309,6 +309,13 @@ function renderBudget(){
     return progBar(`${labels[k]} (${S.rule[k]||0}%)`, spent[k], budgets[k], k==="epargne");
   }).join("");
 
+  // carte salaire mensuel (espace dédié)
+  $("#salaireBig").textContent = fmtF(S.salaireMensuel);
+  const credites = S.income.filter(i=>i.auto).length;
+  $("#salaireInfo").textContent = S.salaireMensuel>0
+    ? `Crédité automatiquement chaque mois (${credites} mois crédité${credites>1?"s":""} jusqu'ici).`
+    : "Aucun salaire défini — touche le bouton pour l'indiquer.";
+
   // par catégorie de dépense (budget = part du bucket / nb cat? -> on montre dépense vs un repère simple)
   const byCat = {};
   txs.forEach(t=>{ byCat[t.catId]=(byCat[t.catId]||0)+t.amount; });
@@ -519,12 +526,38 @@ function openIncomeSheet(id){
   });
 }
 
+/* ----- Salaire mensuel : espace dédié ----- */
+function applySalaire(newSal){
+  S.salaireMensuel = newSal;
+  // met à jour le salaire déjà crédité pour le mois courant, puis crédite les mois manquants
+  const cur = nowYM();
+  const curAuto = S.income.find(i=>i.auto && i.month===cur);
+  if(curAuto) curAuto.amount = newSal;
+  if(newSal>0 && !S.salaireDepuis) S.salaireDepuis = cur;
+  ensureSalary();
+}
+$("#editSalaire").addEventListener("click",()=>{
+  openSheet(`
+    <h3>💼 Définir le salaire mensuel</h3>
+    <div class="small">Ce montant est crédité automatiquement chaque mois sur ton argent disponible. Modifie-le dès que ton salaire change.</div>
+    <label class="fld">Montant (FCFA)</label>
+    <input id="salAmt" inputmode="numeric" value="${S.salaireMensuel?fmt(S.salaireMensuel):''}" placeholder="0" />
+    <div style="height:14px;"></div>
+    <button class="btn" id="salSave">Enregistrer</button>
+  `);
+  $("#salAmt").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
+  setTimeout(()=>$("#salAmt").focus(),120);
+  $("#salSave").addEventListener("click",()=>{
+    applySalaire(Number($("#salAmt").value.replace(/\D/g,""))||0);
+    save();closeSheet();toast("Salaire enregistré 💼");renderAll();
+  });
+});
+
+/* ----- Règle 50/30/20 (pourcentages seuls) ----- */
 $("#editBudget").addEventListener("click",()=>{
   openSheet(`
-    <h3>Modifier le budget</h3>
-    <label class="fld">Salaire mensuel (FCFA)</label>
-    <input id="bRev" inputmode="numeric" value="${fmt(S.salaireMensuel)}" />
-    <div class="small">Crédité automatiquement chaque mois sur ton argent global.</div>
+    <h3>Règle 50/30/20</h3>
+    <div class="small">Comment répartir ton revenu mensuel entre besoins, loisirs et épargne.</div>
     <label class="fld">Besoins (%)</label>
     <input id="bBes" inputmode="numeric" value="${S.rule.besoins}" />
     <label class="fld">Loisirs (%)</label>
@@ -535,20 +568,12 @@ $("#editBudget").addEventListener("click",()=>{
     <div style="height:14px;"></div>
     <button class="btn" id="bSave">Enregistrer</button>
   `);
-  $("#bRev").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
   const sum=()=>{const t=(+$("#bBes").value||0)+(+$("#bLoi").value||0)+(+$("#bEpa").value||0);
     $("#bSum").textContent=`Total : ${t}%`+(t!==100?" — devrait faire 100%":" ✅"); $("#bSum").style.color=t!==100?"#ef4444":"#0e9f6e";};
   ["bBes","bLoi","bEpa"].forEach(id=>$("#"+id).addEventListener("input",sum)); sum();
   $("#bSave").addEventListener("click",()=>{
-    const newSal = Number($("#bRev").value.replace(/\D/g,""))||0;
-    S.salaireMensuel = newSal;
     S.rule={besoins:+$("#bBes").value||0,loisirs:+$("#bLoi").value||0,epargne:+$("#bEpa").value||0};
-    // met à jour le salaire déjà crédité pour le mois courant, puis crédite les mois manquants
-    const cur = nowYM();
-    const curAuto = S.income.find(i=>i.auto && i.month===cur);
-    if(curAuto) curAuto.amount = newSal;
-    ensureSalary();
-    save();closeSheet();toast("Budget mis à jour");renderAll();
+    save();closeSheet();toast("Règle mise à jour");renderAll();
   });
 });
 

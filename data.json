@@ -1,5 +1,5 @@
 {
-  "salaireMensuel": 400000,
+  "salaireMensuel": 410000,
   "salaireDepuis": "2026-06",
   "rule": {
     "besoins": 50,
@@ -60,7 +60,7 @@
   "income": [
     {
       "id": "mqjhzywp1tp",
-      "amount": 400000,
+      "amount": 410000,
       "note": "Salaire",
       "date": "2026-06-01T08:00:00.000Z",
       "auto": true,

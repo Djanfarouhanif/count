@@ -43,6 +43,12 @@
         <div class="mrow total"><span class="ml">Reste à vivre ce mois</span><span class="mv num" id="mReste">0</span></div>
       </div>
 
+      <div class="card" id="debtsCard" style="cursor:pointer">
+        <div class="section-title">🤝 Dettes &amp; Créances <span class="link">Gérer ›</span></div>
+        <div class="mrow"><span class="ml">À payer (je dois)</span><span class="mv num neg" id="dettesDue">0</span></div>
+        <div class="mrow"><span class="ml">À recevoir (on me doit)</span><span class="mv num" id="creancesDue">0</span></div>
+      </div>
+
       <div class="card">
         <div class="section-title">Derniers mouvements <span class="link" id="goHistory">Tout voir</span></div>
         <div id="recentList"></div>
@@ -128,6 +134,28 @@
       <div class="card">
         <div class="section-title">Toutes les dépenses du mois</div>
         <div id="fullList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DETTES & CRÉANCES ================= -->
+  <section class="screen" id="screen-debts">
+    <header class="top" style="display:flex;align-items:center;gap:8px;">
+      <button class="backbtn" id="debtsBack" aria-label="Retour">‹</button>
+      <div><h1>Dettes &amp; Créances</h1><div class="sub">Ce que tu dois, ce qu'on te doit</div></div>
+    </header>
+    <div style="padding:0 16px;">
+      <div class="quick">
+        <button class="qbtn expense" id="addDette">＋ Dette (je dois)</button>
+        <button class="qbtn income" id="addCreance">＋ Créance (on me doit)</button>
+      </div>
+      <div class="card">
+        <div class="section-title">💸 Mes dettes — total à payer : <span id="dettesTotal" class="num">0</span></div>
+        <div id="dettesList"></div>
+      </div>
+      <div class="card">
+        <div class="section-title">💰 Mes créances — total à recevoir : <span id="creancesTotal" class="num">0</span></div>
+        <div id="creancesList"></div>
       </div>
     </div>
   </section>

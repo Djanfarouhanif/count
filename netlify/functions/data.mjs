@@ -22,6 +22,7 @@ const SEED = {
   income: [],
   tx: [],
   savings: [],
+  debts: [],
   goals: [
     { id: "urgence", name: "Fonds d'urgence", target: 600000, saved: 0, due: "" }
   ]

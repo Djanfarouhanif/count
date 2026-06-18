@@ -238,3 +238,17 @@
   .swipe-hint{font-size:11px;color:var(--muted);text-align:center;margin-top:4px;}
   .danger-link{color:var(--red);font-size:12px;font-weight:700;background:none;border:0;cursor:pointer;}
 
+  /* dettes & créances */
+  .backbtn{font-size:28px;line-height:1;border:0;background:transparent;color:var(--ink);cursor:pointer;padding:0 6px 0 0;font-family:inherit;}
+  .debt{padding:12px 0;border-bottom:1px solid var(--line);}
+  .debt:last-child{border-bottom:0;}
+  .debt-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+  .debt-who{font-weight:700;font-size:15px;}
+  .debt-amt{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .debt.done .debt-who,.debt.done .debt-amt{color:var(--muted);text-decoration:line-through;}
+  .debt-actions{display:flex;align-items:center;gap:14px;margin-top:9px;}
+  .badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;}
+  .badge.ok{background:var(--green-soft);color:#0a6b4a;}
+  .linkbtn{background:none;border:0;color:var(--blue);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;padding:0;}
+  .linkbtn.danger{color:var(--red);}
+

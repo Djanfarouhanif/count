@@ -88,7 +88,15 @@
       "date": "2026-06-18T12:52:52.978Z"
     }
   ],
-  "tx": [],
+  "tx": [
+    {
+      "id": "mqjqk0z9pf",
+      "amount": 10000,
+      "catId": "nourriture",
+      "note": "",
+      "date": "2026-06-18T16:50:12.597Z"
+    }
+  ],
   "savings": [],
   "goals": [
     {
@@ -97,6 +105,28 @@
       "target": 600000,
       "saved": 0,
       "due": ""
+    }
+  ],
+  "debts": [
+    {
+      "id": "mqjqlljo2v0",
+      "type": "dette",
+      "person": "AWA",
+      "amount": 1000,
+      "note": "PC",
+      "date": "2026-06-18T16:51:25.908Z",
+      "settled": true,
+      "settledDate": "2026-06-18T16:52:36.292Z"
+    },
+    {
+      "id": "mqjqmggm4um",
+      "type": "creance",
+      "person": "MO",
+      "amount": 200,
+      "note": "",
+      "date": "2026-06-18T16:52:05.974Z",
+      "settled": true,
+      "settledDate": "2026-06-18T16:53:12.987Z"
     }
   ]
 }

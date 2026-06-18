@@ -27,6 +27,7 @@ function freshState(){
     income: [],        // rentrées d'argent {id, amount, note, date(ISO), auto?, month?}
     tx: [],            // dépenses {id, amount, catId, note, date(ISO)}
     savings: [],       // versements d'épargne {id, goalId, amount, date(ISO)}
+    debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
     goals: [
       {id:"urgence", name:"Fonds d'urgence", target:600000, saved:0, due:""},
     ],
@@ -46,6 +47,7 @@ function normalize(s){
   s.cats.forEach(c=>{ c.limit = Number(c.limit) || 0; }); // plafond mensuel par catégorie
   s.income  = s.income || [];
   s.savings = s.savings || [];
+  s.debts   = s.debts || [];
   s.goals   = s.goals || [];
   s.tx      = s.tx || [];
   delete s.revenu;
@@ -114,7 +116,10 @@ function savedOfMonth(yms){ return S.savings.filter(s=>s.date.slice(0,7)===yms).
 function sumIncome(){ return S.income.reduce((a,i)=>a+i.amount,0); }      // total encaissé (salaires + ponctuels)
 function sumExpenses(){ return S.tx.reduce((a,t)=>a+t.amount,0); }         // total dépensé
 function sumSaved(){ return S.goals.reduce((a,g)=>a+(g.saved||0),0); }     // total mis de côté (épargne)
-function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved(); } // argent réellement disponible
+// dettes payées = argent sorti ; créances reçues = argent entré (seulement quand réglées)
+function sumDettesPayees(){ return S.debts.filter(d=>d.type==="dette" && d.settled).reduce((a,d)=>a+d.amount,0); }
+function sumCreancesRecues(){ return S.debts.filter(d=>d.type==="creance" && d.settled).reduce((a,d)=>a+d.amount,0); }
+function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() + sumCreancesRecues() - sumDettesPayees(); }
 
 function uid(){ return Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
 function todayISO(){ return new Date().toISOString(); }
@@ -467,6 +472,94 @@ function renderSaving(){
 $("#addGoal").addEventListener("click",()=>openEditGoal(null));
 
 /* ============================================================
+   DETTES & CRÉANCES
+   - dette réglée  -> retirée de l'argent global
+   - créance reçue -> ajoutée à l'argent global
+============================================================ */
+function renderDebts(){
+  const dettesDue   = S.debts.filter(d=>d.type==="dette"   && !d.settled).reduce((a,d)=>a+d.amount,0);
+  const creancesDue = S.debts.filter(d=>d.type==="creance" && !d.settled).reduce((a,d)=>a+d.amount,0);
+  // carte d'accueil
+  $("#dettesDue").textContent   = fmt(dettesDue);
+  $("#creancesDue").textContent = fmt(creancesDue);
+  // écran dédié
+  $("#dettesTotal").textContent   = fmt(dettesDue);
+  $("#creancesTotal").textContent = fmt(creancesDue);
+
+  const order = (a,b)=> (a.settled?1:0)-(b.settled?1:0) || b.date.localeCompare(a.date);
+  const dettes   = S.debts.filter(d=>d.type==="dette").sort(order);
+  const creances = S.debts.filter(d=>d.type==="creance").sort(order);
+  $("#dettesList").innerHTML   = dettes.length   ? dettes.map(debtRow).join("")   : `<div class="empty">Aucune dette. 🎉</div>`;
+  $("#creancesList").innerHTML = creances.length ? creances.map(debtRow).join("") : `<div class="empty">Personne ne te doit d'argent.</div>`;
+  bindDebtRows();
+}
+function debtRow(d){
+  const isDette = d.type==="dette";
+  const action = isDette ? "Marquer payé" : "Marquer reçu";
+  const doneLbl = isDette ? "Payé ✓" : "Reçu ✓";
+  return `<div class="debt${d.settled?' done':''}" data-id="${d.id}">
+    <div class="debt-top">
+      <span class="debt-who">${escapeHtml(d.person||"—")}</span>
+      <span class="debt-amt">${fmt(d.amount)} FCFA</span>
+    </div>
+    ${d.note?`<div class="small">${escapeHtml(d.note)}</div>`:""}
+    <div class="debt-actions">
+      ${d.settled
+        ? `<span class="badge ok">${doneLbl}</span><button class="linkbtn" data-act="undo">Annuler</button>`
+        : `<button class="btn sm" data-act="settle">${action}</button>`}
+      <button class="linkbtn danger" data-act="del">Supprimer</button>
+    </div>
+  </div>`;
+}
+function bindDebtRows(){
+  $$("#screen-debts .debt").forEach(row=>{
+    const id=row.dataset.id;
+    const d=S.debts.find(x=>x.id===id); if(!d) return;
+    const btn=(act)=>row.querySelector(`[data-act="${act}"]`);
+    if(btn("settle")) btn("settle").addEventListener("click",()=>{
+      d.settled=true; d.settledDate=todayISO(); save();
+      toast(d.type==="dette"?"Dette payée — retirée du solde":"Créance reçue — ajoutée au solde");
+      renderAll();
+    });
+    if(btn("undo")) btn("undo").addEventListener("click",()=>{
+      d.settled=false; d.settledDate=""; save(); toast("Réglage annulé"); renderAll();
+    });
+    if(btn("del")) btn("del").addEventListener("click",()=>{
+      S.debts=S.debts.filter(x=>x.id!==id); save(); toast("Supprimé"); renderAll();
+    });
+  });
+}
+function openAddDebt(type){
+  const isDette = type==="dette";
+  openSheet(`
+    <h3>${isDette?"＋ Nouvelle dette (je dois)":"＋ Nouvelle créance (on me doit)"}</h3>
+    <div class="small">${isDette
+      ? "Quand tu la marqueras payée, le montant sera retiré de ton argent global."
+      : "Quand tu la marqueras reçue, le montant sera ajouté à ton argent global."}</div>
+    <label class="fld">${isDette?"À qui dois-tu ?":"Qui te doit ?"}</label>
+    <input id="dPerson" placeholder="ex : Awa, boutique, banque…" />
+    <label class="fld">Montant (FCFA)</label>
+    <input id="dAmt" inputmode="numeric" placeholder="0" />
+    <label class="fld">Note (optionnel)</label>
+    <input id="dNote" placeholder="ex : prêt, achat à crédit…" />
+    <div style="height:14px;"></div>
+    <button class="btn" id="dSave">Ajouter</button>
+  `);
+  $("#dAmt").addEventListener("input",e=>{const x=e.target.value.replace(/\D/g,"");e.target.value=x?fmt(x):"";});
+  setTimeout(()=>$("#dPerson").focus(),120);
+  $("#dSave").addEventListener("click",()=>{
+    const amt=Number($("#dAmt").value.replace(/\D/g,""));
+    if(!amt){shake($("#dAmt"));return;}
+    S.debts.push({id:uid(), type, person:$("#dPerson").value.trim()||"—", amount:amt, note:$("#dNote").value.trim(), date:todayISO(), settled:false, settledDate:""});
+    save();closeSheet();toast(isDette?"Dette ajoutée":"Créance ajoutée");renderAll();
+  });
+}
+$("#debtsCard").addEventListener("click",()=>show("debts"));
+$("#debtsBack").addEventListener("click",()=>show("home"));
+$("#addDette").addEventListener("click",()=>openAddDebt("dette"));
+$("#addCreance").addEventListener("click",()=>openAddDebt("creance"));
+
+/* ============================================================
    HISTORIQUE & ANALYSE
 ============================================================ */
 let histM = 0; // 0 = ce mois, 1 = mois dernier
@@ -766,6 +859,7 @@ function renderAll(){
   renderBudget();
   renderSaving();
   renderHistory();
+  renderDebts();
 }
 // Démarrage : on charge les données depuis le serveur AVANT d'afficher
 (async function init(){

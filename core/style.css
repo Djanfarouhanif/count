@@ -229,6 +229,7 @@
     position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:440px;
     background:#fff;border-radius:22px 22px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));z-index:51;
     box-shadow:0 -10px 30px rgba(0,0,0,.18);
+    max-height:90vh;max-height:90dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;
   }
   .sheet h3{margin:2px 0 6px;font-size:18px;}
   .sheet .handle{width:42px;height:5px;background:#dfe5ea;border-radius:999px;margin:0 auto 12px;}

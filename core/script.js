@@ -255,13 +255,15 @@ function renderCatGrid(){
   $("#catGrid").innerHTML = S.cats.map(c=>`
     <div class="cat${selectedCat===c.id?' sel':''}" data-cat="${c.id}">
       <div class="ci">${c.icon}</div><div class="cn">${c.name}</div>
-    </div>`).join("");
-  $$("#catGrid .cat").forEach(el=>{
+    </div>`).join("")
+    + `<div class="cat catadd" id="catAddTile"><div class="ci">＋</div><div class="cn">Nouvelle</div></div>`;
+  $$("#catGrid .cat[data-cat]").forEach(el=>{
     el.addEventListener("click",()=>{
       selectedCat = el.dataset.cat;
       $$("#catGrid .cat").forEach(x=>x.classList.toggle("sel", x.dataset.cat===selectedCat));
     });
   });
+  $("#catAddTile").addEventListener("click", openNewCategory);
 }
 function resetAddForm(){
   selectedCat = null;
@@ -287,6 +289,56 @@ $("#saveTx").addEventListener("click",()=>{
 function shake(el){ el.style.transition="transform .07s"; let i=0; const seq=[-8,8,-6,6,-3,0];
   const t=setInterval(()=>{ el.style.transform=`translateX(${seq[i]}px)`; if(++i>=seq.length){clearInterval(t);el.style.transform="";} },60); }
 function flashCatGrid(){ const g=$("#catGrid"); g.style.transition="box-shadow .2s"; g.style.boxShadow="0 0 0 2px #ef4444"; setTimeout(()=>g.style.boxShadow="",500); toast("Choisis une catégorie"); }
+
+// Création d'une nouvelle catégorie (nom + icône + couleur + type + limite)
+function openNewCategory(){
+  const ICONS = ["🛒","🍔","☕","👕","💊","🏥","🎓","⛽","🎮","🎁","💡","🚗","📚","✈️","🐟","🍺","💇","🐾","🔌","🧹","💰","🎵"];
+  const COLORS = ["#0e9f6e","#2f6fed","#7c3aed","#f59e0b","#06b6d4","#ef4444","#e11d8f","#16a34a","#0891b2","#7a8a99"];
+  let icon = "", color = COLORS[0], bucket = "besoins";
+  openSheet(`
+    <h3>Nouvelle catégorie</h3>
+    <label class="fld">Nom</label>
+    <input id="ncName" placeholder="ex : Santé, Vêtements, Café…" />
+    <label class="fld">Icône</label>
+    <input id="ncIcon" maxlength="2" placeholder="Tape un emoji ou choisis ci-dessous" style="text-align:center;font-size:24px;" />
+    <div class="iconpick" id="ncIcons">${ICONS.map(e=>`<button type="button" class="picki" data-e="${e}">${e}</button>`).join("")}</div>
+    <label class="fld">Couleur</label>
+    <div class="colorpick" id="ncColors">${COLORS.map(c=>`<button type="button" class="pickc" data-c="${c}" style="background:${c}"></button>`).join("")}</div>
+    <label class="fld">Type (pour la règle 50/30/20)</label>
+    <div class="seg" id="ncBucket">
+      <button type="button" data-b="besoins" class="on">Besoin</button>
+      <button type="button" data-b="loisirs">Loisir</button>
+    </div>
+    <label class="fld">Limite mensuelle (FCFA, optionnel)</label>
+    <input id="ncLimit" inputmode="numeric" placeholder="0 = sans limite" />
+    <div style="height:14px;"></div>
+    <button class="btn" id="ncSave">Créer la catégorie</button>
+  `);
+  // icône : clic sur un emoji proposé OU saisie manuelle
+  $$("#ncIcons .picki").forEach(b=>b.addEventListener("click",()=>{ icon=b.dataset.e; $("#ncIcon").value=icon; }));
+  $("#ncIcon").addEventListener("input",e=>{ icon=e.target.value.trim(); });
+  // couleur
+  const pickColor=(b)=>{ color=b.dataset.c; $$("#ncColors .pickc").forEach(x=>x.classList.toggle("sel",x===b)); };
+  $$("#ncColors .pickc").forEach(b=>b.addEventListener("click",()=>pickColor(b)));
+  pickColor($("#ncColors .pickc")); // 1re couleur par défaut
+  // type
+  $$("#ncBucket button").forEach(b=>b.addEventListener("click",()=>{ bucket=b.dataset.b; $$("#ncBucket button").forEach(x=>x.classList.toggle("on",x===b)); }));
+  // limite formatée
+  $("#ncLimit").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
+  setTimeout(()=>$("#ncName").focus(),120);
+  $("#ncSave").addEventListener("click",()=>{
+    const name=$("#ncName").value.trim();
+    if(!name){ shake($("#ncName")); return; }
+    const ic = ($("#ncIcon").value.trim() || icon || "🧾");
+    const id = "c"+uid();
+    S.cats.push({id, name, icon:ic, color, bucket, limit:Number($("#ncLimit").value.replace(/\D/g,""))||0});
+    selectedCat = id;        // sélectionne direct la nouvelle catégorie
+    save();closeSheet();
+    renderCatGrid();
+    toast("Catégorie créée ✅");
+    renderAll();
+  });
+}
 
 /* ============================================================
    BUDGET 50/30/20

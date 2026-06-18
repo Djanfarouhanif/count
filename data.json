@@ -7,21 +7,96 @@
     "epargne": 20
   },
   "cats": [
-    { "id": "nourriture", "name": "Nourriture",      "icon": "🍚", "color": "#0e9f6e", "bucket": "besoins", "limit": 60000 },
-    { "id": "transport",  "name": "Transport",       "icon": "🚕", "color": "#2f6fed", "bucket": "besoins", "limit": 36000 },
-    { "id": "loyer",      "name": "Loyer & Charges", "icon": "🏠", "color": "#7c3aed", "bucket": "besoins", "limit": 10000 },
-    { "id": "loisirs",    "name": "Loisirs",         "icon": "🎉", "color": "#f59e0b", "bucket": "loisirs", "limit": 0 },
-    { "id": "telecom",    "name": "Tél / Internet",  "icon": "📱", "color": "#06b6d4", "bucket": "besoins", "limit": 0 },
-    { "id": "imprevus",   "name": "Imprévus",        "icon": "⚡", "color": "#ef4444", "bucket": "loisirs", "limit": 0 },
-    { "id": "autre",      "name": "Autre",           "icon": "🧾", "color": "#7a8a99", "bucket": "loisirs", "limit": 0 }
+    {
+      "id": "nourriture",
+      "name": "Nourriture",
+      "icon": "🍚",
+      "color": "#0e9f6e",
+      "bucket": "besoins",
+      "limit": 60000
+    },
+    {
+      "id": "transport",
+      "name": "Transport",
+      "icon": "🚕",
+      "color": "#2f6fed",
+      "bucket": "besoins",
+      "limit": 36000
+    },
+    {
+      "id": "loyer",
+      "name": "Loyer & Charges",
+      "icon": "🏠",
+      "color": "#7c3aed",
+      "bucket": "besoins",
+      "limit": 10000
+    },
+    {
+      "id": "loisirs",
+      "name": "Loisirs",
+      "icon": "🎉",
+      "color": "#f59e0b",
+      "bucket": "loisirs",
+      "limit": 0
+    },
+    {
+      "id": "telecom",
+      "name": "Tél / Internet",
+      "icon": "📱",
+      "color": "#06b6d4",
+      "bucket": "besoins",
+      "limit": 0
+    },
+    {
+      "id": "imprevus",
+      "name": "Imprévus",
+      "icon": "⚡",
+      "color": "#ef4444",
+      "bucket": "loisirs",
+      "limit": 0
+    },
+    {
+      "id": "autre",
+      "name": "Autre",
+      "icon": "🧾",
+      "color": "#7a8a99",
+      "bucket": "loisirs",
+      "limit": 0
+    },
+    {
+      "id": "cmqjp2qwx1hz",
+      "name": "test",
+      "icon": "🏥",
+      "color": "#06b6d4",
+      "bucket": "loisirs",
+      "limit": 1000
+    }
   ],
   "income": [
-    { "id": "mqjhzywp1tp", "amount": 410000, "note": "Salaire", "date": "2026-06-01T08:00:00.000Z", "auto": true, "month": "2026-06" },
-    { "id": "mqji2tma3b3", "amount": 30000, "note": "Revenu", "date": "2026-06-18T12:52:52.978Z" }
+    {
+      "id": "mqjhzywp1tp",
+      "amount": 410000,
+      "note": "Salaire",
+      "date": "2026-06-01T08:00:00.000Z",
+      "auto": true,
+      "month": "2026-06"
+    },
+    {
+      "id": "mqji2tma3b3",
+      "amount": 30000,
+      "note": "Revenu",
+      "date": "2026-06-18T12:52:52.978Z"
+    }
   ],
   "tx": [],
   "savings": [],
   "goals": [
-    { "id": "urgence", "name": "Fonds d'urgence", "target": 600000, "saved": 0, "due": "" }
+    {
+      "id": "urgence",
+      "name": "Fonds d'urgence",
+      "target": 600000,
+      "saved": 0,
+      "due": ""
+    }
   ]
 }

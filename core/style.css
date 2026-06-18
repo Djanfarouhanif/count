@@ -155,6 +155,16 @@
   .cat .ci{font-size:24px;}
   .cat .cn{font-size:12px;font-weight:700;margin-top:4px;line-height:1.1;}
   .cat.sel{border-color:var(--green);background:var(--green-soft);box-shadow:0 0 0 3px rgba(14,159,110,.12);}
+  .cat.catadd{border-style:dashed;color:var(--muted);}
+  .cat.catadd .ci{color:var(--green);font-weight:300;}
+
+  /* pickers (nouvelle catégorie) */
+  .iconpick{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+  .picki{font-size:22px;width:44px;height:44px;border:1.5px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;line-height:1;}
+  .picki:active{background:#eef1f4;}
+  .colorpick{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;}
+  .pickc{width:34px;height:34px;border-radius:50%;border:0;cursor:pointer;}
+  .pickc.sel{outline:3px solid rgba(0,0,0,.18);outline-offset:2px;}
 
   /* big amount display in add screen */
   .amount-box{text-align:center;padding:10px 0 4px;}

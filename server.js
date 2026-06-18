@@ -24,13 +24,13 @@ const SEED = {
   salaireDepuis: "",
   rule: { besoins: 50, loisirs: 30, epargne: 20 },
   cats: [
-    { id: "nourriture", name: "Nourriture",      icon: "🍚", color: "#0e9f6e", bucket: "besoins" },
-    { id: "transport",  name: "Transport",       icon: "🚕", color: "#2f6fed", bucket: "besoins" },
-    { id: "loyer",      name: "Loyer & Charges", icon: "🏠", color: "#7c3aed", bucket: "besoins" },
-    { id: "loisirs",    name: "Loisirs",         icon: "🎉", color: "#f59e0b", bucket: "loisirs" },
-    { id: "telecom",    name: "Tél / Internet",  icon: "📱", color: "#06b6d4", bucket: "besoins" },
-    { id: "imprevus",   name: "Imprévus",        icon: "⚡", color: "#ef4444", bucket: "loisirs" },
-    { id: "autre",      name: "Autre",           icon: "🧾", color: "#7a8a99", bucket: "loisirs" }
+    { id: "nourriture", name: "Nourriture",      icon: "🍚", color: "#0e9f6e", bucket: "besoins", limit: 60000 },
+    { id: "transport",  name: "Transport",       icon: "🚕", color: "#2f6fed", bucket: "besoins", limit: 36000 },
+    { id: "loyer",      name: "Loyer & Charges", icon: "🏠", color: "#7c3aed", bucket: "besoins", limit: 10000 },
+    { id: "loisirs",    name: "Loisirs",         icon: "🎉", color: "#f59e0b", bucket: "loisirs", limit: 0 },
+    { id: "telecom",    name: "Tél / Internet",  icon: "📱", color: "#06b6d4", bucket: "besoins", limit: 0 },
+    { id: "imprevus",   name: "Imprévus",        icon: "⚡", color: "#ef4444", bucket: "loisirs", limit: 0 },
+    { id: "autre",      name: "Autre",           icon: "🧾", color: "#7a8a99", bucket: "loisirs", limit: 0 }
   ],
   income: [],
   tx: [],

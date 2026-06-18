@@ -9,13 +9,13 @@
 ============================================================ */
 const API = "/api/data";
 const DEFAULT_CATS = [
-  {id:"nourriture", name:"Nourriture",        icon:"🍚", color:"#0e9f6e", bucket:"besoins"},
-  {id:"transport",  name:"Transport",         icon:"🚕", color:"#2f6fed", bucket:"besoins"},
-  {id:"loyer",      name:"Loyer & Charges",   icon:"🏠", color:"#7c3aed", bucket:"besoins"},
-  {id:"loisirs",    name:"Loisirs",           icon:"🎉", color:"#f59e0b", bucket:"loisirs"},
-  {id:"telecom",    name:"Tél / Internet",    icon:"📱", color:"#06b6d4", bucket:"besoins"},
-  {id:"imprevus",   name:"Imprévus",          icon:"⚡", color:"#ef4444", bucket:"loisirs"},
-  {id:"autre",      name:"Autre",             icon:"🧾", color:"#7a8a99", bucket:"loisirs"},
+  {id:"nourriture", name:"Nourriture",        icon:"🍚", color:"#0e9f6e", bucket:"besoins", limit:60000},
+  {id:"transport",  name:"Transport",         icon:"🚕", color:"#2f6fed", bucket:"besoins", limit:36000},
+  {id:"loyer",      name:"Loyer & Charges",   icon:"🏠", color:"#7c3aed", bucket:"besoins", limit:10000},
+  {id:"loisirs",    name:"Loisirs",           icon:"🎉", color:"#f59e0b", bucket:"loisirs", limit:0},
+  {id:"telecom",    name:"Tél / Internet",    icon:"📱", color:"#06b6d4", bucket:"besoins", limit:0},
+  {id:"imprevus",   name:"Imprévus",          icon:"⚡", color:"#ef4444", bucket:"loisirs", limit:0},
+  {id:"autre",      name:"Autre",             icon:"🧾", color:"#7a8a99", bucket:"loisirs", limit:0},
 ];
 
 function freshState(){
@@ -43,6 +43,7 @@ function normalize(s){
   s.salaireDepuis  = s.salaireDepuis || "";
   s.rule   = s.rule || {besoins:50, loisirs:30, epargne:20};
   s.cats   = (s.cats && s.cats.length) ? s.cats : DEFAULT_CATS;
+  s.cats.forEach(c=>{ c.limit = Number(c.limit) || 0; }); // plafond mensuel par catégorie
   s.income  = s.income || [];
   s.savings = s.savings || [];
   s.goals   = s.goals || [];
@@ -316,21 +317,32 @@ function renderBudget(){
     ? `Crédité automatiquement chaque mois (${credites} mois crédité${credites>1?"s":""} jusqu'ici).`
     : "Aucun salaire défini — touche le bouton pour l'indiquer.";
 
-  // par catégorie de dépense (budget = part du bucket / nb cat? -> on montre dépense vs un repère simple)
+  // par catégorie : dépensé ce mois vs limite définie par l'utilisateur
   const byCat = {};
   txs.forEach(t=>{ byCat[t.catId]=(byCat[t.catId]||0)+t.amount; });
-  const totalSpent = txs.reduce((a,t)=>a+t.amount,0) || 1;
-  $("#catBudgetBars").innerHTML = S.cats
-    .filter(c=>byCat[c.id])
-    .sort((a,b)=>byCat[b.id]-byCat[a.id])
-    .map(c=>{
-      const used = byCat[c.id];
-      const pct = Math.round(used/totalSpent*100);
+  $("#catBudgetBars").innerHTML = S.cats.map(c=>{
+    const used = byCat[c.id] || 0;
+    const lim  = c.limit || 0;
+    if(lim > 0){
+      const pct = Math.round(used/lim*100);
+      const cls = pct>=100 ? "bad" : (pct>=80 ? "warn" : "");
+      const left = lim - used;
+      const span = cls ? `style="width:${Math.min(100,Math.max(2,pct))}%"`
+                       : `style="width:${Math.min(100,Math.max(2,pct))}%;background:${c.color}"`;
+      const note = left < 0
+        ? `<span style="color:var(--red)">Dépassé de ${fmt(-left)} FCFA</span>`
+        : `Reste ${fmt(left)} FCFA`;
       return `<div class="prog">
-        <div class="head"><span class="name">${c.icon} ${c.name}</span><span class="vals">${fmt(used)} · ${pct}%</span></div>
-        <div class="bar"><span style="width:${Math.min(100,pct)}%;background:${c.color}"></span></div>
+        <div class="head"><span class="name">${c.icon} ${c.name}</span><span class="vals">${fmt(used)} / ${fmt(lim)}</span></div>
+        <div class="bar ${cls}"><span ${span}></span></div>
+        <div class="small" style="margin-top:4px;">${note}</div>
       </div>`;
-    }).join("") || `<div class="empty">Pas encore de dépense ce mois.</div>`;
+    }
+    return `<div class="prog">
+      <div class="head"><span class="name">${c.icon} ${c.name}</span><span class="vals">${fmt(used)} · sans limite</span></div>
+      <div class="bar"><span style="width:${used>0?100:0}%;background:#dfe5ea"></span></div>
+    </div>`;
+  }).join("");
 }
 function progBar(name, used, budget, isSaving){
   const pct = budget>0 ? Math.round(used/budget*100) : 0;
@@ -550,6 +562,28 @@ $("#editSalaire").addEventListener("click",()=>{
   $("#salSave").addEventListener("click",()=>{
     applySalaire(Number($("#salAmt").value.replace(/\D/g,""))||0);
     save();closeSheet();toast("Salaire enregistré 💼");renderAll();
+  });
+});
+
+/* ----- Limites par catégorie : l'utilisateur définit chaque plafond ----- */
+$("#editLimits").addEventListener("click",()=>{
+  openSheet(`
+    <h3>Limites par dépense</h3>
+    <div class="small">Fixe un plafond mensuel par catégorie. Laisse vide / 0 pour « sans limite ». La barre passe à l'orange à 80% puis au rouge au dépassement.</div>
+    ${S.cats.map(c=>`
+      <label class="fld">${c.icon} ${c.name} (FCFA)</label>
+      <input class="limInput" data-cat="${c.id}" inputmode="numeric" value="${c.limit?fmt(c.limit):''}" placeholder="0 = sans limite" />
+    `).join("")}
+    <div style="height:14px;"></div>
+    <button class="btn" id="limSave">Enregistrer les limites</button>
+  `);
+  $$(".limInput").forEach(inp=>inp.addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";}));
+  $("#limSave").addEventListener("click",()=>{
+    $$(".limInput").forEach(inp=>{
+      const c=S.cats.find(x=>x.id===inp.dataset.cat);
+      if(c) c.limit = Number(inp.value.replace(/\D/g,"")) || 0;
+    });
+    save();closeSheet();toast("Limites enregistrées ✅");renderAll();
   });
 });
 

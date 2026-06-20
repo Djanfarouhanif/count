@@ -638,6 +638,27 @@ function renderHistory(){
     return `<div class="li"><span class="dot" style="background:${c.color}"></span><span class="ln">${c.name}</span><span class="lv">${fmt(v)} · ${pct}%</span></div>`;
   }).join("") : `<div class="small">Aucune dépense ce mois.</div>`;
 
+  // dépenses par jour & catégorie
+  const byDay = {};
+  txs.forEach(t=>{ const day=t.date.slice(0,10); (byDay[day]=byDay[day]||[]).push(t); });
+  const days = Object.keys(byDay).sort().reverse();
+  $("#dailyBreakdown").innerHTML = days.length ? days.map(day=>{
+    const dayTxs = byDay[day];
+    const dayTotal = dayTxs.reduce((a,t)=>a+t.amount,0);
+    const byC = {};
+    dayTxs.forEach(t=>{ byC[t.catId]=(byC[t.catId]||0)+t.amount; });
+    const d = new Date(day+"T00:00:00");
+    const label = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+    const rows = Object.entries(byC).sort((a,b)=>b[1]-a[1]).map(([cid,v])=>{
+      const c=catById(cid);
+      return `<div class="dcat"><span class="dcat-n">${c.icon} ${c.name}</span><span class="dcat-v">${fmt(v)} FCFA</span></div>`;
+    }).join("");
+    return `<div class="dayblock">
+      <div class="dayhead"><span class="dayname">${label}</span><span class="daytot">${fmt(dayTotal)} FCFA</span></div>
+      ${rows}
+    </div>`;
+  }).join("") : `<div class="empty">Aucune dépense ce mois.</div>`;
+
   // comparaison
   const curT = totalOfMonth(cur), prevT = totalOfMonth(prev);
   $("#cmpPrev").textContent = fmt(prevT);

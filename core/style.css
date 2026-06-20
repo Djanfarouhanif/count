@@ -193,6 +193,16 @@
   .legend .ln{flex:1;font-weight:600;}
   .legend .lv{color:var(--muted);font-variant-numeric:tabular-nums;}
 
+  /* dépenses par jour & catégorie */
+  .dayblock{margin-bottom:16px;}
+  .dayblock:last-child{margin-bottom:0;}
+  .dayhead{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:6px;}
+  .dayname{font-weight:800;font-size:14px;text-transform:capitalize;}
+  .daytot{font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;}
+  .dcat{display:flex;justify-content:space-between;padding:4px 0;font-size:14px;}
+  .dcat-n{font-weight:600;}
+  .dcat-v{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:700;}
+
   .compare{display:flex;gap:10px;margin-top:6px;}
   .compare .cbox{flex:1;background:#f7f9fa;border-radius:14px;padding:12px;text-align:center;}
   .compare .cbox .k{font-size:12px;color:var(--muted);}

@@ -138,6 +138,9 @@ function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() + sumCre
 
 function uid(){ return Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
 function todayISO(){ return new Date().toISOString(); }
+function todayDate(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+// transforme une date "YYYY-MM-DD" choisie en ISO ; garde l'heure réelle si c'est aujourd'hui
+function dateFromInput(dval){ return (!dval || dval===todayDate()) ? todayISO() : dval+"T12:00:00.000Z"; }
 
 /* Crédite automatiquement le salaire pour chaque mois écoulé depuis
    "salaireDepuis" jusqu'au mois courant (une seule entrée auto par mois). */
@@ -289,6 +292,7 @@ function resetAddForm(){
   selectedCat = null;
   $("#amountBig").value = "";
   $("#noteInput").value = "";
+  $("#dateInput").value = todayDate(); // date du jour par défaut
   renderCatGrid();
 }
 // format amount input live
@@ -300,7 +304,7 @@ $("#saveTx").addEventListener("click",()=>{
   const amount = Number(($("#amountBig").value||"").replace(/\D/g,""));
   if(!amount){ shake($("#amountBig")); return; }
   if(!selectedCat){ flashCatGrid(); return; }
-  S.tx.push({id:uid(), amount, catId:selectedCat, note:$("#noteInput").value.trim(), date:todayISO()});
+  S.tx.push({id:uid(), amount, catId:selectedCat, note:$("#noteInput").value.trim(), date:dateFromInput($("#dateInput").value)});
   save();
   resetAddForm();
   toast("Dépense enregistrée ✅");
@@ -725,6 +729,8 @@ function openTxSheet(id){
     <input id="edAmt" inputmode="numeric" value="${fmt(t.amount)}" />
     <label class="fld">Catégorie</label>
     <select id="edCat">${S.cats.map(cc=>`<option value="${cc.id}" ${cc.id===t.catId?"selected":""}>${cc.icon} ${cc.name}</option>`).join("")}</select>
+    <label class="fld">Date</label>
+    <input id="edDate" type="date" value="${t.date.slice(0,10)}" />
     <label class="fld">Note</label>
     <input id="edNote" value="${escapeHtml(t.note)}" />
     <div style="height:16px;"></div>
@@ -736,6 +742,8 @@ function openTxSheet(id){
     const amt=Number($("#edAmt").value.replace(/\D/g,""));
     if(!amt){shake($("#edAmt"));return;}
     t.amount=amt; t.catId=$("#edCat").value; t.note=$("#edNote").value.trim();
+    const dv=$("#edDate").value;
+    if(dv && dv!==t.date.slice(0,10)) t.date = dv+"T12:00:00.000Z"; // jour changé
     save();closeSheet();toast("Modifié ✅");renderAll();
   });
   $("#edDel").addEventListener("click",()=>{

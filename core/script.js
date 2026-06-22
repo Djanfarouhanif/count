@@ -627,6 +627,12 @@ function renderHistory(){
   $("#histMonthLabel").textContent = monthName(yms);
   const txs = txOfMonth(yms);
 
+  // historique des revenus du mois (salaire + ponctuels)
+  const incs = S.income.filter(i=>i.date.slice(0,7)===yms).sort((a,b)=>b.date.localeCompare(a.date));
+  $("#histIncomeTotal").textContent = fmt(incs.reduce((a,i)=>a+i.amount,0)) + " FCFA";
+  $("#incomeList").innerHTML = incs.length ? incs.map(incomeRow).join("") : `<div class="empty">Aucun revenu ce mois.</div>`;
+  bindIncomeRows("#incomeList");
+
   // répartition
   const byCat = {};
   txs.forEach(t=>{ byCat[t.catId]=(byCat[t.catId]||0)+t.amount; });

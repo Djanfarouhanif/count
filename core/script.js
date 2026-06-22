@@ -193,7 +193,10 @@ function renderHome(){
   const revMois = incomeOfMonth(cur);
   const depMois = totalOfMonth(cur);
   const epaMois = savedOfMonth(cur);
-  const resteMois = revMois - depMois - epaMois;
+  // dettes payées / créances reçues réglées CE mois (d'après la date de règlement)
+  const dettesMois   = S.debts.filter(d=>d.type==="dette"   && d.settled && (d.settledDate||"").slice(0,7)===cur).reduce((a,d)=>a+d.amount,0);
+  const creancesMois = S.debts.filter(d=>d.type==="creance" && d.settled && (d.settledDate||"").slice(0,7)===cur).reduce((a,d)=>a+d.amount,0);
+  const resteMois = revMois - depMois - epaMois + creancesMois - dettesMois;
 
   $("#monthLabel").textContent = "Argent suivi globalement";
   $("#moisCourant").textContent = monthName(cur);

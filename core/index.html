@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <title>Mon Budget — FCFA</title>
+<link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,7 +29,10 @@
   <section class="screen active" id="screen-home">
     <header class="top" style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div><h1 id="greet">Mon Budget</h1><div class="sub" id="monthLabel"></div></div>
-      <button id="lockBtn" class="iconbtn" aria-label="Code de sécurité">🔒</button>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        <button id="lockBtn" class="iconbtn" aria-label="Code de sécurité">🔒</button>
+        <span id="syncDot" class="syncdot"></span>
+      </div>
     </header>
     <div style="padding:0 16px;">
       <div class="hero">

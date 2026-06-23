@@ -8,6 +8,9 @@
    est injoignable (ex. fichier ouvert en file:// sans serveur).
 ============================================================ */
 const API = "/api/data";
+const LS_KEY = "monbudget_cache_v1";   // cache local (fonctionnement hors-ligne)
+let online = false;                     // serveur/cloud joignable ?
+let dirty  = false;                     // changements locaux pas encore synchronisés ?
 const DEFAULT_CATS = [
   {id:"nourriture", name:"Nourriture",        icon:"🍚", color:"#0e9f6e", bucket:"besoins", limit:60000},
   {id:"transport",  name:"Transport",         icon:"🚕", color:"#2f6fed", bucket:"besoins", limit:36000},
@@ -41,6 +44,7 @@ let needsSave = false;   // true si normalize a fait une migration à persister
 function normalize(s){
   s = s || {};
   s.pin = typeof s.pin === "string" ? s.pin : "";
+  s.updatedAt = typeof s.updatedAt === "string" ? s.updatedAt : ""; // horodatage pour la synchro
   // migration : ancien champ "revenu" -> "salaireMensuel"
   if(s.salaireMensuel === undefined && s.revenu !== undefined) s.salaireMensuel = s.revenu;
   s.salaireMensuel = Number(s.salaireMensuel) || 0;
@@ -66,36 +70,77 @@ function normalize(s){
   return s;
 }
 
-// Lecture : récupère TOUTES les données depuis le serveur (data.json)
-async function load(){
+/* ----- Cache local (hors-ligne) ----- */
+function lsRead(){ try{ const r=localStorage.getItem(LS_KEY); return r?JSON.parse(r):null; }catch(e){ return null; } }
+function lsWrite(d){ try{ localStorage.setItem(LS_KEY, JSON.stringify(d)); }catch(e){} }
+
+async function fetchServer(){
+  try{ const res=await fetch(API,{cache:"no-store"}); if(!res.ok) throw 0; return await res.json(); }
+  catch(e){ return undefined; } // undefined = serveur injoignable (hors-ligne)
+}
+async function pushToServer(data){
   try{
-    const res = await fetch(API, {cache:"no-store"});
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    const data = normalize(await res.json());
-    dataLoaded = true;
-    return data;
-  }catch(e){
-    console.warn("API injoignable — mode secours hors-ligne :", e.message);
-    dataLoaded = false;
-    return freshState();
-  }
+    const res=await fetch(API,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+    if(!res.ok) throw 0;
+    online=true; dirty=false;
+  }catch(e){ online=false; dirty=true; }
+  updateSyncBadge();
 }
 
-// Écriture : renvoie l'état complet au serveur, qui réécrit data.json
-let saveSeq = 0;
-async function save(){
-  const mySeq = ++saveSeq;
-  try{
-    const res = await fetch(API, {
-      method:"PUT",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify(S)
-    });
-    if(!res.ok) throw new Error("HTTP "+res.status);
-  }catch(e){
-    console.warn("Sauvegarde échouée :", e.message);
-    if(mySeq === saveSeq) toast("⚠️ Sauvegarde impossible (serveur ?)");
+// Lecture : combine cache local + serveur ; le plus récent gagne. Marche hors-ligne.
+async function load(){
+  const local  = lsRead();
+  const server = await fetchServer();
+  let chosen;
+  if(server !== undefined){
+    online = true;
+    if(local && (local.updatedAt||"") > (server.updatedAt||"")){
+      chosen = local; pushToServer(local);   // le local est plus récent -> on le pousse
+    } else {
+      chosen = server; dirty = false;
+    }
+  } else {
+    online = false;
+    chosen = local || freshState();
+    if(local) dirty = true;                   // données locales potentiellement non synchronisées
   }
+  dataLoaded = true;
+  const norm = normalize(chosen);
+  lsWrite(norm);
+  updateSyncBadge();
+  return norm;
+}
+
+// Écriture : TOUJOURS en local (hors-ligne OK), puis tentative vers le serveur.
+async function save(){
+  S.updatedAt = new Date().toISOString();
+  lsWrite(S);
+  await pushToServer(S);
+}
+
+// Synchronisation (au retour de connexion) : le plus récent gagne.
+async function syncNow(){
+  const server = await fetchServer();
+  if(server === undefined){ online=false; updateSyncBadge(); return; }
+  online = true;
+  if((server.updatedAt||"") > (S.updatedAt||"")){
+    S = normalize(server); lsWrite(S); dirty=false; renderAll();  // le serveur est plus récent
+  } else if(dirty || (S.updatedAt||"") > (server.updatedAt||"")){
+    await pushToServer(S);                                        // le local est plus récent
+  } else {
+    dirty=false;
+  }
+  updateSyncBadge();
+}
+window.addEventListener("online", ()=>{ toast("Connexion retrouvée — synchronisation…"); syncNow(); });
+window.addEventListener("offline", ()=>{ online=false; updateSyncBadge(); });
+
+// Petit indicateur d'état (en ligne / hors-ligne / à synchroniser)
+function updateSyncBadge(){
+  const el=$("#syncDot"); if(!el) return;
+  if(online && !dirty){ el.textContent="● en ligne";   el.style.color="#0e9f6e"; }
+  else if(online && dirty){ el.textContent="● synchro…"; el.style.color="#f59e0b"; }
+  else { el.textContent="● hors ligne"; el.style.color="#ef4444"; }
 }
 
 /* ============================================================
@@ -1037,20 +1082,7 @@ $("#lockBtn").addEventListener("click",()=>{
 
 // Démarrage : on charge les données depuis le serveur AVANT d'afficher
 (async function init(){
-  S = await load();
-
-  if(!dataLoaded){
-    // serveur non joint : on n'affiche PAS « créez un code » (trompeur), mais un message clair
-    $("#lockTitle").textContent = "Hors ligne";
-    $("#lockSub").textContent = "Serveur non joint. Ouvre l'app via http://localhost:3000 (et garde « node server.js » lancé).";
-    $("#lockDots").innerHTML = "";
-    $("#lockPad").innerHTML = `<button class="lk fn" id="lockRetry" style="grid-column:1/4;">↻ Réessayer</button>`;
-    $("#lockRetry").addEventListener("click",()=>location.reload());
-    $("#lockSkip").style.display = "none";
-    $("#lock").style.display = "flex";
-    return;
-  }
-
+  S = await load();   // marche même hors-ligne (cache local)
   if(ensureSalary() || needsSave) save();   // crédite le salaire + persiste la migration
   renderCatGrid();
   if(S.pin && S.pin.length){
@@ -1059,4 +1091,9 @@ $("#lockBtn").addEventListener("click",()=>{
     showLock("create");        // pas encore de code -> on propose d'en créer un (avec « Ignorer »)
   }
 })();
+
+// Service Worker : permet d'OUVRIR l'app sans connexion (cache de la page)
+if("serviceWorker" in navigator && location.protocol.startsWith("http")){
+  navigator.serviceWorker.register("/sw.js").catch(()=>{});
+}
 

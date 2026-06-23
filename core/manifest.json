@@ -1,0 +1,11 @@
+{
+  "name": "Mon Budget FCFA",
+  "short_name": "Mon Budget",
+  "description": "Gestion de finances personnelles en FCFA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e9f6e",
+  "theme_color": "#0e9f6e",
+  "lang": "fr",
+  "orientation": "portrait"
+}

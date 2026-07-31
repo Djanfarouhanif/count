@@ -35,6 +35,7 @@ function freshState(){
     tx: [],            // dépenses {id, amount, catId, note, date(ISO), debtId?}
     savings: [],       // mouvements d'épargne {id, target:"reserve"|goalId, amount(+/-), date(ISO)}
     reserve: 0,        // épargne de sécurité = réserve libre (sans cible)
+    soldeAdjust: 0,    // correction manuelle du SEUL argent global (n'entre dans aucun historique/stat)
     debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
                        //   réglée -> un vrai mouvement (tx ou income) portant debtId est créé
     goals: [],         // objectifs d'achat {id, name, target, saved, due}
@@ -70,6 +71,7 @@ function normalize(s){
     needsSave = true;
   }
   s.reserve = Number(s.reserve) || 0;
+  s.soldeAdjust = Number(s.soldeAdjust) || 0;
   // migration : un règlement de dette/créance devient un VRAI mouvement d'argent.
   // Avant, le solde global lisait directement les lignes réglées : supprimer une dette
   // déjà payée faisait bouger l'argent global. Maintenant le règlement crée une dépense
@@ -207,7 +209,9 @@ function sumSaved(){ return (S.reserve||0) + S.goals.reduce((a,g)=>a+(g.saved||0
 // Les dettes/créances réglées ne sont PAS comptées ici : leur règlement a créé un vrai
 // mouvement (dépense ou revenu), déjà pris dans sumExpenses()/sumIncome(). Supprimer une
 // ligne de dette ne touche donc plus à l'argent global.
-function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved(); }
+// soldeAdjust = correction manuelle (« mon argent réel est X »). Elle ne touche QUE cette
+// ligne : ni l'historique, ni les dépenses du mois, ni les stats par catégorie.
+function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() + (S.soldeAdjust||0); }
 
 function uid(){ return Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
 function todayISO(){ return new Date().toISOString(); }
@@ -933,6 +937,57 @@ function openIncomeSheet(id){
     toast(linked?"Encaissement annulé — créance en attente":"Supprimé");renderAll();
   });
 }
+
+/* ----- Ajuster l'argent global (bouton ✏️ en haut à droite) -----
+   Quand une transaction a été mal saisie ou oubliée, on cale simplement l'argent
+   global sur l'argent RÉEL. L'écart est mémorisé dans S.soldeAdjust : SEULE la ligne
+   « Argent disponible (global) » change. Aucun revenu, aucune dépense, aucune ligne
+   d'historique n'est créée ; les stats, catégories et totaux du mois sont intacts. */
+function openAdjustSolde(){
+  const cur = soldeGlobal();
+  const adj = S.soldeAdjust || 0;
+  openSheet(`
+    <h3>✏️ Modifier l'argent global</h3>
+    <div class="small">Indique l'argent que tu as <b>vraiment</b> (poche + mobile money + banque). Seule cette ligne change : ton historique, tes dépenses du mois et tes statistiques ne bougent pas.</div>
+    <label class="fld">Argent réel disponible (FCFA)</label>
+    <input id="adjAmt" inputmode="numeric" value="${cur>0?fmt(cur):""}" placeholder="0" />
+    <div class="small" id="adjDiff" style="margin-top:8px;">&nbsp;</div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="adjSave">Enregistrer</button>
+    ${adj ? `<div style="text-align:center;margin-top:12px;">
+      <div class="small">Correction actuellement appliquée : <b>${adj>0?"+":"−"}${fmtF(Math.abs(adj))}</b></div>
+      <button class="linkbtn" id="adjReset">Revenir au montant calculé par l'app</button>
+    </div>` : ""}
+  `);
+  const typed  = ()=> Number(($("#adjAmt").value||"").replace(/\D/g,""));
+  const diffNow= ()=> typed() - cur;
+  const refresh = ()=>{
+    const d = diffNow(), el = $("#adjDiff");
+    if(!d){ el.innerHTML = "Identique au montant actuel — rien ne changera."; el.style.color=""; return; }
+    el.innerHTML = `Ton argent global passera de <b>${fmtF(cur)}</b> à <b>${fmtF(typed())}</b> (${d>0?"+":"−"}${fmt(Math.abs(d))}).`;
+    el.style.color = d>0 ? "var(--green)" : "var(--red)";
+  };
+  $("#adjAmt").addEventListener("input",e=>{
+    const x=e.target.value.replace(/\D/g,""); e.target.value=x?fmt(x):"";
+    refresh();
+  });
+  refresh();
+  setTimeout(()=>{ $("#adjAmt").focus(); $("#adjAmt").select(); },120);
+  $("#adjSave").addEventListener("click",()=>{
+    const d = diffNow();
+    if(!d){ closeSheet(); toast("Aucun changement"); return; }
+    S.soldeAdjust = adj + d;         // on décale le solde, sans toucher aux mouvements
+    save();closeSheet();
+    toast("Argent global mis à jour ✅");
+    renderAll();
+  });
+  const rst = $("#adjReset");
+  if(rst) rst.addEventListener("click",()=>{
+    S.soldeAdjust = 0;
+    save();closeSheet();toast("Correction annulée");renderAll();
+  });
+}
+$("#editSolde").addEventListener("click", openAdjustSolde);
 
 /* ----- Salaire mensuel : espace dédié ----- */
 function applySalaire(newSal){

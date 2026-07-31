@@ -160,8 +160,29 @@
       "date": "2026-06-18T16:52:05.974Z",
       "settled": true,
       "settledDate": "2026-06-18T16:53:12.987Z"
+    },
+    {
+      "id": "ms8af3205pf",
+      "type": "creance",
+      "person": "AWA",
+      "amount": 1000,
+      "note": "",
+      "date": "2026-07-31T01:52:24.888Z",
+      "settled": false,
+      "settledDate": ""
+    },
+    {
+      "id": "ms8ag8u35cj",
+      "type": "dette",
+      "person": "MO",
+      "amount": 1000,
+      "note": "",
+      "date": "2026-07-31T01:53:19.035Z",
+      "settled": false,
+      "settledDate": ""
     }
   ],
   "reserve": 200000,
-  "updatedAt": "2026-07-31T01:47:54.776Z"
+  "updatedAt": "2026-07-31T16:25:53.575Z",
+  "soldeAdjust": -638200
 }

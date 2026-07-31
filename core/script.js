@@ -20,6 +20,9 @@ const DEFAULT_CATS = [
   {id:"imprevus",   name:"Imprévus",          icon:"⚡", color:"#ef4444", bucket:"loisirs", limit:0},
   {id:"autre",      name:"Autre",             icon:"🧾", color:"#7a8a99", bucket:"loisirs", limit:0},
 ];
+// catégorie utilisée pour les dettes remboursées (créée à la demande, pas imposée)
+const DEBT_CAT_ID = "remb_dette";
+const DEBT_CAT = {id:DEBT_CAT_ID, name:"Remboursement dette", icon:"💳", color:"#e11d48", bucket:"besoins", limit:0};
 
 function freshState(){
   return {
@@ -28,11 +31,12 @@ function freshState(){
     salaireDepuis: "",       // mois "YYYY-MM" à partir duquel le salaire est crédité
     rule: {besoins:50, loisirs:30, epargne:20},
     cats: DEFAULT_CATS,
-    income: [],        // rentrées d'argent {id, amount, note, date(ISO), auto?, month?}
-    tx: [],            // dépenses {id, amount, catId, note, date(ISO)}
+    income: [],        // rentrées d'argent {id, amount, note, date(ISO), auto?, month?, debtId?}
+    tx: [],            // dépenses {id, amount, catId, note, date(ISO), debtId?}
     savings: [],       // mouvements d'épargne {id, target:"reserve"|goalId, amount(+/-), date(ISO)}
     reserve: 0,        // épargne de sécurité = réserve libre (sans cible)
     debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
+                       //   réglée -> un vrai mouvement (tx ou income) portant debtId est créé
     goals: [],         // objectifs d'achat {id, name, target, saved, due}
   };
 }
@@ -66,8 +70,32 @@ function normalize(s){
     needsSave = true;
   }
   s.reserve = Number(s.reserve) || 0;
+  // migration : un règlement de dette/créance devient un VRAI mouvement d'argent.
+  // Avant, le solde global lisait directement les lignes réglées : supprimer une dette
+  // déjà payée faisait bouger l'argent global. Maintenant le règlement crée une dépense
+  // (dette payée) ou un revenu (créance reçue) relié par debtId ; la ligne de dette ne
+  // sert plus qu'au suivi. Le solde reste identique avant/après migration.
+  s.debts.forEach(d=>{
+    if(!d.settled) return;
+    const linked = d.type==="dette" ? s.tx.some(t=>t.debtId===d.id)
+                                    : s.income.some(i=>i.debtId===d.id);
+    if(linked) return;
+    const when = d.settledDate || d.date || todayISO();
+    const amt  = Number(d.amount) || 0;
+    if(d.type==="dette"){
+      if(!s.cats.some(c=>c.id===DEBT_CAT_ID)) s.cats.push({...DEBT_CAT});
+      s.tx.push({id:uid(), amount:amt, catId:DEBT_CAT_ID, note:debtLabel(d), date:when, debtId:d.id});
+    }else{
+      s.income.push({id:uid(), amount:amt, note:debtLabel(d), date:when, debtId:d.id});
+    }
+    needsSave = true;
+  });
   delete s.revenu;
   return s;
+}
+// libellé du mouvement généré par un règlement
+function debtLabel(d){
+  return (d.type==="dette" ? "Dette remboursée · " : "Créance reçue · ") + (d.person || "—");
 }
 
 /* ----- Cache local (hors-ligne) ----- */
@@ -176,10 +204,10 @@ function savedOfMonth(yms){ return S.savings.filter(s=>s.date.slice(0,7)===yms).
 function sumIncome(){ return S.income.reduce((a,i)=>a+i.amount,0); }      // total encaissé (salaires + ponctuels)
 function sumExpenses(){ return S.tx.reduce((a,t)=>a+t.amount,0); }         // total dépensé
 function sumSaved(){ return (S.reserve||0) + S.goals.reduce((a,g)=>a+(g.saved||0),0); } // réserve sécurité + objectifs
-// dettes payées = argent sorti ; créances reçues = argent entré (seulement quand réglées)
-function sumDettesPayees(){ return S.debts.filter(d=>d.type==="dette" && d.settled).reduce((a,d)=>a+d.amount,0); }
-function sumCreancesRecues(){ return S.debts.filter(d=>d.type==="creance" && d.settled).reduce((a,d)=>a+d.amount,0); }
-function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() + sumCreancesRecues() - sumDettesPayees(); }
+// Les dettes/créances réglées ne sont PAS comptées ici : leur règlement a créé un vrai
+// mouvement (dépense ou revenu), déjà pris dans sumExpenses()/sumIncome(). Supprimer une
+// ligne de dette ne touche donc plus à l'argent global.
+function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved(); }
 
 function uid(){ return Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
 function todayISO(){ return new Date().toISOString(); }
@@ -238,10 +266,8 @@ function renderHome(){
   const revMois = incomeOfMonth(cur);
   const depMois = totalOfMonth(cur);
   const epaMois = savedOfMonth(cur);
-  // dettes payées / créances reçues réglées CE mois (d'après la date de règlement)
-  const dettesMois   = S.debts.filter(d=>d.type==="dette"   && d.settled && (d.settledDate||"").slice(0,7)===cur).reduce((a,d)=>a+d.amount,0);
-  const creancesMois = S.debts.filter(d=>d.type==="creance" && d.settled && (d.settledDate||"").slice(0,7)===cur).reduce((a,d)=>a+d.amount,0);
-  const resteMois = revMois - depMois - epaMois + creancesMois - dettesMois;
+  // les règlements de dettes/créances du mois sont déjà dans revMois / depMois
+  const resteMois = revMois - depMois - epaMois;
 
   $("#monthLabel").textContent = "Argent suivi globalement";
   $("#moisCourant").textContent = monthName(cur);
@@ -576,9 +602,28 @@ $("#reserveSub").addEventListener("click",()=>openReserve("sub"));
 
 /* ============================================================
    DETTES & CRÉANCES
-   - dette réglée  -> retirée de l'argent global
-   - créance reçue -> ajoutée à l'argent global
+   - dette réglée  -> crée une DÉPENSE réelle (argent sorti)
+   - créance reçue -> crée un REVENU réel (argent entré)
+   La ligne de dette n'est qu'un suivi : la supprimer ne touche pas au solde.
+   Pour annuler le mouvement d'argent, utiliser « Annuler » (le règlement est défait).
 ============================================================ */
+// crée le mouvement d'argent correspondant au règlement
+function settleDebt(d){
+  d.settled = true;
+  d.settledDate = todayISO();
+  if(d.type==="dette"){
+    if(!S.cats.some(c=>c.id===DEBT_CAT_ID)) S.cats.push({...DEBT_CAT});
+    S.tx.push({id:uid(), amount:d.amount, catId:DEBT_CAT_ID, note:debtLabel(d), date:d.settledDate, debtId:d.id});
+  }else{
+    S.income.push({id:uid(), amount:d.amount, note:debtLabel(d), date:d.settledDate, debtId:d.id});
+  }
+}
+// défait le règlement : le mouvement d'argent est retiré
+function unsettleDebt(d){
+  S.tx     = S.tx.filter(t=>t.debtId!==d.id);
+  S.income = S.income.filter(i=>i.debtId!==d.id);
+  d.settled = false; d.settledDate = "";
+}
 function renderDebts(){
   const dettesDue   = S.debts.filter(d=>d.type==="dette"   && !d.settled).reduce((a,d)=>a+d.amount,0);
   const creancesDue = S.debts.filter(d=>d.type==="creance" && !d.settled).reduce((a,d)=>a+d.amount,0);
@@ -620,25 +665,59 @@ function bindDebtRows(){
     const d=S.debts.find(x=>x.id===id); if(!d) return;
     const btn=(act)=>row.querySelector(`[data-act="${act}"]`);
     if(btn("settle")) btn("settle").addEventListener("click",()=>{
-      d.settled=true; d.settledDate=todayISO(); save();
-      toast(d.type==="dette"?"Dette payée — retirée du solde":"Créance reçue — ajoutée au solde");
+      settleDebt(d); save();
+      toast(d.type==="dette"?"Dette payée — dépense enregistrée":"Créance reçue — revenu enregistré");
       renderAll();
     });
     if(btn("undo")) btn("undo").addEventListener("click",()=>{
-      d.settled=false; d.settledDate=""; save(); toast("Réglage annulé"); renderAll();
+      unsettleDebt(d); save();
+      toast(d.type==="dette"?"Règlement annulé — dépense retirée":"Règlement annulé — revenu retiré");
+      renderAll();
     });
     if(btn("del")) btn("del").addEventListener("click",()=>{
-      S.debts=S.debts.filter(x=>x.id!==id); save(); toast("Supprimé"); renderAll();
+      if(d.settled) confirmDeleteSettled(d); else { S.debts=S.debts.filter(x=>x.id!==id); save(); toast("Supprimé"); renderAll(); }
     });
   });
+}
+// Supprimer une ligne DÉJÀ RÉGLÉE : on demande quoi faire du mouvement d'argent,
+// pour qu'aucune suppression ne modifie le solde par surprise.
+function confirmDeleteSettled(d){
+  const isDette = d.type==="dette";
+  const mvt = isDette ? "la dépense" : "le revenu";
+  openSheet(`
+    <h3>🗑 Supprimer cette ligne</h3>
+    <div class="small">${escapeHtml(d.person||"—")} · <b>${fmt(d.amount)} FCFA</b> — déjà ${isDette?"payée":"reçue"}.<br>
+      Le règlement a créé ${mvt} correspondant${isDette?"e":""} dans ton historique.</div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="delKeep">Supprimer le suivi, garder ${mvt}</button>
+    <div class="small" style="margin-top:6px;">Ton argent global ne bouge pas.</div>
+    <div style="height:16px;"></div>
+    <button class="btn ghost" id="delBoth">Supprimer aussi ${mvt}</button>
+    <div class="small" style="margin-top:6px;">Comme si le règlement n'avait jamais eu lieu : ton solde ${isDette?"remontera":"baissera"} de ${fmt(d.amount)} FCFA.</div>
+    <div style="height:14px;"></div>
+    <div style="text-align:center;"><button class="linkbtn" id="delCancel">Annuler</button></div>
+  `);
+  $("#delKeep").addEventListener("click",()=>{
+    // le mouvement reste, mais devient une ligne ordinaire (plus de lien)
+    S.tx.forEach(t=>{ if(t.debtId===d.id) delete t.debtId; });
+    S.income.forEach(i=>{ if(i.debtId===d.id) delete i.debtId; });
+    S.debts=S.debts.filter(x=>x.id!==d.id);
+    save();closeSheet();toast("Suivi supprimé — solde inchangé");renderAll();
+  });
+  $("#delBoth").addEventListener("click",()=>{
+    unsettleDebt(d);
+    S.debts=S.debts.filter(x=>x.id!==d.id);
+    save();closeSheet();toast("Ligne et mouvement supprimés");renderAll();
+  });
+  $("#delCancel").addEventListener("click",closeSheet);
 }
 function openAddDebt(type){
   const isDette = type==="dette";
   openSheet(`
     <h3>${isDette?"＋ Nouvelle dette (je dois)":"＋ Nouvelle créance (on me doit)"}</h3>
     <div class="small">${isDette
-      ? "Quand tu la marqueras payée, le montant sera retiré de ton argent global."
-      : "Quand tu la marqueras reçue, le montant sera ajouté à ton argent global."}</div>
+      ? "Quand tu la marqueras payée, une dépense du même montant sera enregistrée dans ton historique (l'argent sort du solde)."
+      : "Quand tu la marqueras reçue, un revenu du même montant sera enregistré dans ton historique (l'argent entre dans le solde)."}</div>
     <label class="fld">${isDette?"À qui dois-tu ?":"Qui te doit ?"}</label>
     <input id="dPerson" placeholder="ex : Awa, boutique, banque…" />
     <label class="fld">Montant (FCFA)</label>
@@ -770,9 +849,11 @@ $("#sheetBg").addEventListener("click",closeSheet);
 function openTxSheet(id){
   const t=S.tx.find(x=>x.id===id); if(!t)return;
   const c=catById(t.catId);
+  const linked = t.debtId ? S.debts.find(x=>x.id===t.debtId) : null;
   openSheet(`
     <h3>${c.icon} ${c.name}</h3>
     <div class="small">${new Date(t.date).toLocaleString("fr-FR")}</div>
+    ${linked?`<div class="small">💳 Remboursement de la dette envers <b>${escapeHtml(linked.person||"—")}</b>. La supprimer remettra cette dette « à payer ».</div>`:""}
     <label class="fld">Montant (FCFA)</label>
     <input id="edAmt" inputmode="numeric" value="${fmt(t.amount)}" />
     <label class="fld">Catégorie</label>
@@ -792,10 +873,13 @@ function openTxSheet(id){
     t.amount=amt; t.catId=$("#edCat").value; t.note=$("#edNote").value.trim();
     const dv=$("#edDate").value;
     if(dv && dv!==t.date.slice(0,10)) t.date = dv+"T12:00:00.000Z"; // jour changé
+    if(linked){ linked.amount=amt; linked.settledDate=t.date; } // garde la dette alignée
     save();closeSheet();toast("Modifié ✅");renderAll();
   });
   $("#edDel").addEventListener("click",()=>{
-    S.tx=S.tx.filter(x=>x.id!==id);save();closeSheet();toast("Supprimé");renderAll();
+    if(linked){ linked.settled=false; linked.settledDate=""; } // la dette redevient à payer
+    S.tx=S.tx.filter(x=>x.id!==id);save();closeSheet();
+    toast(linked?"Remboursement annulé — dette à payer":"Supprimé");renderAll();
   });
 }
 
@@ -822,9 +906,11 @@ function openAddIncome(){
 }
 function openIncomeSheet(id){
   const i=S.income.find(x=>x.id===id); if(!i)return;
+  const linked = i.debtId ? S.debts.find(x=>x.id===i.debtId) : null;
   openSheet(`
-    <h3>${i.auto?"💼 Salaire":"💵 Revenu"}</h3>
+    <h3>${linked?"🤝 Créance reçue":(i.auto?"💼 Salaire":"💵 Revenu")}</h3>
     <div class="small">${new Date(i.date).toLocaleDateString("fr-FR")}${i.auto?" · crédité automatiquement":""}</div>
+    ${linked?`<div class="small">Remboursement reçu de <b>${escapeHtml(linked.person||"—")}</b>. Le supprimer remettra cette créance « en attente ».</div>`:""}
     <label class="fld">Montant (FCFA)</label>
     <input id="inEdAmt" inputmode="numeric" value="${fmt(i.amount)}" />
     <label class="fld">Note</label>
@@ -838,10 +924,13 @@ function openIncomeSheet(id){
     const amt=Number($("#inEdAmt").value.replace(/\D/g,""));
     if(!amt){shake($("#inEdAmt"));return;}
     i.amount=amt; i.note=$("#inEdNote").value.trim()||"Revenu";
+    if(linked) linked.amount=amt; // garde la créance alignée
     save();closeSheet();toast("Modifié ✅");renderAll();
   });
   $("#inEdDel").addEventListener("click",()=>{
-    S.income=S.income.filter(x=>x.id!==id);save();closeSheet();toast("Supprimé");renderAll();
+    if(linked){ linked.settled=false; linked.settledDate=""; } // la créance redevient en attente
+    S.income=S.income.filter(x=>x.id!==id);save();closeSheet();
+    toast(linked?"Encaissement annulé — créance en attente":"Supprimé");renderAll();
   });
 }
 

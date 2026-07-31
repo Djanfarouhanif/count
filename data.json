@@ -71,6 +71,14 @@
       "color": "#06b6d4",
       "bucket": "loisirs",
       "limit": 1000
+    },
+    {
+      "id": "remb_dette",
+      "name": "Remboursement dette",
+      "icon": "💳",
+      "color": "#e11d48",
+      "bucket": "besoins",
+      "limit": 0
     }
   ],
   "income": [
@@ -87,6 +95,21 @@
       "amount": 30000,
       "note": "Revenu",
       "date": "2026-06-18T12:52:52.978Z"
+    },
+    {
+      "id": "ms8a63hu2iv",
+      "amount": 200,
+      "note": "Créance reçue · MO",
+      "date": "2026-06-18T16:53:12.987Z",
+      "debtId": "mqjqmggm4um"
+    },
+    {
+      "id": "ms8a63hu4q",
+      "amount": 410000,
+      "note": "Salaire",
+      "date": "2026-07-01T08:00:00.000Z",
+      "auto": true,
+      "month": "2026-07"
     }
   ],
   "tx": [
@@ -96,6 +119,20 @@
       "catId": "nourriture",
       "note": "",
       "date": "2026-06-18T16:50:12.597Z"
+    },
+    {
+      "id": "ms8a63hu2cr",
+      "amount": 1000,
+      "catId": "remb_dette",
+      "note": "Dette remboursée · AWA",
+      "date": "2026-06-18T16:52:36.292Z"
+    },
+    {
+      "id": "ms8a915r22i",
+      "amount": 1000,
+      "catId": "remb_dette",
+      "note": "Dette remboursée · MO",
+      "date": "2026-07-31T01:47:42.495Z"
     }
   ],
   "savings": [
@@ -115,16 +152,6 @@
   "goals": [],
   "debts": [
     {
-      "id": "mqjqlljo2v0",
-      "type": "dette",
-      "person": "AWA",
-      "amount": 1000,
-      "note": "PC",
-      "date": "2026-06-18T16:51:25.908Z",
-      "settled": true,
-      "settledDate": "2026-06-18T16:52:36.292Z"
-    },
-    {
       "id": "mqjqmggm4um",
       "type": "creance",
       "person": "MO",
@@ -135,5 +162,6 @@
       "settledDate": "2026-06-18T16:53:12.987Z"
     }
   ],
-  "reserve": 200000
+  "reserve": 200000,
+  "updatedAt": "2026-07-31T01:47:54.776Z"
 }

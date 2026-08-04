@@ -110,6 +110,14 @@
       "date": "2026-07-01T08:00:00.000Z",
       "auto": true,
       "month": "2026-07"
+    },
+    {
+      "id": "msewaxxi34",
+      "amount": 410000,
+      "note": "Salaire",
+      "date": "2026-08-01T08:00:00.000Z",
+      "auto": true,
+      "month": "2026-08"
     }
   ],
   "tx": [
@@ -183,6 +191,6 @@
     }
   ],
   "reserve": 200000,
-  "updatedAt": "2026-07-31T16:25:53.575Z",
+  "updatedAt": "2026-08-04T16:51:40.230Z",
   "soldeAdjust": -638200
 }

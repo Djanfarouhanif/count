@@ -840,6 +840,193 @@ function drawDonut(entries){
 }
 
 /* ============================================================
+   STATISTIQUES (icône 📈 en haut à droite)
+   Courbe d'évolution des dépenses + chiffres utiles en dessous.
+============================================================ */
+let statsPeriod = "6";   // "6" | "12" mois, ou "30j" = 30 derniers jours
+$$("#statsSeg button").forEach(b=>{
+  b.addEventListener("click",()=>{
+    statsPeriod = b.dataset.p;
+    $$("#statsSeg button").forEach(x=>x.classList.toggle("on", x===b));
+    renderStats();
+  });
+});
+$("#statsBtn").addEventListener("click",()=>show("stats"));
+$("#statsBack").addEventListener("click",()=>show("home"));
+
+// n derniers mois, du plus ancien au plus récent : ["2026-03", …, "2026-08"]
+function lastMonths(n){
+  const out=[], d=new Date(); d.setDate(1);
+  for(let i=n-1;i>=0;i--){ const x=new Date(d); x.setMonth(d.getMonth()-i); out.push(ym(x)); }
+  return out;
+}
+// n derniers jours, du plus ancien au plus récent : ["2026-07-06", …]
+function lastDays(n){
+  const out=[], d=new Date();
+  for(let i=n-1;i>=0;i--){
+    const x=new Date(d); x.setDate(d.getDate()-i);
+    out.push(x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"));
+  }
+  return out;
+}
+// série affichée par la courbe, selon la période choisie
+function statsSeries(){
+  if(statsPeriod==="30j"){
+    const days = lastDays(30);
+    const exp = days.map(day=>S.tx.filter(t=>t.date.slice(0,10)===day).reduce((a,t)=>a+t.amount,0));
+    const inc = days.map(day=>S.income.filter(i=>i.date.slice(0,10)===day).reduce((a,i)=>a+i.amount,0));
+    // 1 étiquette sur 5 pour ne pas surcharger l'axe
+    const labels = days.map((d,i)=> (i%5===0||i===days.length-1) ? d.slice(8) : "");
+    return {keys:days, labels, exp, inc, unit:"jour"};
+  }
+  const months = lastMonths(Number(statsPeriod));
+  const exp = months.map(totalOfMonth);
+  const inc = months.map(incomeOfMonth);
+  const step = months.length>6 ? 2 : 1;   // sur 12 mois : 1 étiquette sur 2
+  const labels = months.map((m,i)=> (i%step===0||i===months.length-1) ? MONTHS[Number(m.slice(5))-1].slice(0,3) : "");
+  return {keys:months, labels, exp, inc, unit:"mois"};
+}
+
+function renderStats(){
+  const s = statsSeries();
+  const nExp = s.exp.reduce((a,v)=>a+v,0);
+  $("#statsPeriodLbl").textContent = statsPeriod==="30j" ? "30 derniers jours" : statsPeriod+" derniers mois";
+  $("#statsTopLbl").textContent    = $("#statsPeriodLbl").textContent;
+  $("#statsSub").textContent = nExp ? `${fmtF(nExp)} dépensés sur la période` : "Évolution de tes dépenses";
+  drawLineChart(s);
+  $("#chartEmpty").innerHTML = nExp ? "" : `<div class="empty">Aucune dépense sur cette période.</div>`;
+
+  /* ---- chiffres clés ---- */
+  const cur = nowYM();
+  const active = s.exp.filter(v=>v>0).length;              // périodes réellement utilisées
+  const moy    = active ? Math.round(nExp/active) : 0;
+  const today  = new Date();
+  const jours  = today.getDate();
+  const dsMois = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+  const depMois= totalOfMonth(cur);
+  const parJour= Math.round(depMois/jours);
+  const projec = Math.round(parJour*dsMois);
+  const revPer = s.inc.reduce((a,v)=>a+v,0);
+  const tauxEp = revPer ? Math.round((revPer-nExp)/revPer*100) : 0;
+  const kpi=(k,v,h)=>`<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div>${h?`<div class="h">${h}</div>`:""}</div>`;
+  $("#statsKpis").innerHTML =
+    kpi(`Moyenne par ${s.unit}`, fmt(moy), active?`sur ${active} ${s.unit}${active>1?"s":""} avec dépenses`:"—") +
+    kpi("Dépense moyenne / jour", fmt(parJour), "ce mois-ci") +
+    kpi("Projection fin de mois", fmt(projec), `au rythme actuel (${dsMois} j)`) +
+    kpi("Part non dépensée", (revPer?tauxEp+" %":"—"), "des revenus de la période");
+
+  /* ---- top catégories sur la période ---- */
+  const inRange = t => statsPeriod==="30j" ? s.keys.includes(t.date.slice(0,10)) : s.keys.includes(txYM(t));
+  const txs = S.tx.filter(inRange);
+  const byCat = {};
+  txs.forEach(t=>{ byCat[t.catId]=(byCat[t.catId]||0)+t.amount; });
+  const tops = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxCat = tops.length ? tops[0][1] : 1;
+  $("#statsTopCats").innerHTML = tops.length ? tops.map(([id,v])=>{
+    const c = catById(id), pct = nExp?Math.round(v/nExp*100):0;
+    return `<div class="catstat">
+      <div class="ch"><span class="cn">${c.icon} ${c.name}</span><span class="cv">${fmt(v)} · ${pct}%</span></div>
+      <div class="bar"><span style="width:${Math.round(v/maxCat*100)}%;background:${c.color}"></span></div>
+    </div>`;
+  }).join("") : `<div class="empty">Rien à afficher.</div>`;
+
+  /* ---- habitudes ---- */
+  const JOURS = ["Dimanche","Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi"];
+  const byDow = [0,0,0,0,0,0,0];
+  txs.forEach(t=>{ byDow[new Date(t.date).getDay()] += t.amount; });
+  const bestDow = byDow.indexOf(Math.max(...byDow));
+  const biggest = txs.slice().sort((a,b)=>b.amount-a.amount)[0];
+  const iMax = s.exp.indexOf(Math.max(...s.exp));
+  const posOnly = s.exp.map((v,i)=>[v,i]).filter(([v])=>v>0);
+  const iMin = posOnly.length ? posOnly.sort((a,b)=>a[0]-b[0])[0][1] : -1;
+  const nom = i => i<0 ? "—" : (s.unit==="mois" ? monthName(s.keys[i]) : new Date(s.keys[i]+"T00:00:00").toLocaleDateString("fr-FR"));
+  const line=(k,v)=>`<div class="statline"><span class="sl">${k}</span><span class="sv">${v}</span></div>`;
+  $("#statsHabits").innerHTML = txs.length ? (
+    line("Jour où tu dépenses le plus", byDow[bestDow] ? `${JOURS[bestDow]} · ${fmt(byDow[bestDow])}` : "—") +
+    line("Plus grosse dépense", `${catById(biggest.catId).icon} ${fmt(biggest.amount)}`) +
+    line(`${s.unit==="mois"?"Mois":"Jour"} le plus cher`, `${nom(iMax)} · ${fmt(s.exp[iMax])}`) +
+    line(`${s.unit==="mois"?"Mois":"Jour"} le moins cher`, iMin<0?"—":`${nom(iMin)} · ${fmt(s.exp[iMin])}`) +
+    line("Nombre de dépenses", txs.length) +
+    line("Ticket moyen", fmt(Math.round(nExp/txs.length)))
+  ) : `<div class="empty">Pas encore assez de dépenses pour dégager des habitudes.</div>`;
+
+  /* ---- détail période par période (du plus récent au plus ancien) ---- */
+  const rows = s.keys.map((k,i)=>({k, i})).reverse().filter(r=>s.exp[r.i]||s.inc[r.i]);
+  $("#statsMonths").innerHTML = rows.length ? rows.map(({k,i})=>{
+    const solde = s.inc[i]-s.exp[i];
+    const label = s.unit==="mois" ? monthName(k) : new Date(k+"T00:00:00").toLocaleDateString("fr-FR");
+    return `<div class="statline">
+      <span class="sl" style="text-transform:capitalize;color:var(--ink);font-weight:700;">${label}</span>
+      <span class="sv">
+        <span style="color:var(--red)">−${fmt(s.exp[i])}</span>
+        <span style="color:var(--muted);font-weight:600"> · </span>
+        <span style="color:var(--green)">+${fmt(s.inc[i])}</span>
+        <div class="h" style="font-size:11px;color:${solde<0?"var(--red)":"var(--muted)"};font-weight:700;">solde ${solde<0?"":"+"}${fmt(solde)}</div>
+      </span>
+    </div>`;
+  }).join("") : `<div class="empty">Aucun mouvement sur cette période.</div>`;
+}
+
+/* Courbe : dépenses (rouge, remplie) + revenus (vert) — canvas natif, zéro librairie */
+function drawLineChart(s){
+  const cv = $("#lineChart"); if(!cv) return;
+  const box = cv.parentElement.getBoundingClientRect();
+  const W = Math.max(240, Math.round(box.width)), H = Math.round(box.height) || 190;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+
+  const padL=44, padR=10, padT=12, padB=22;
+  const w = W-padL-padR, h = H-padT-padB;
+  const n = s.exp.length;
+  const max = Math.max(1, ...s.exp, ...s.inc);
+  const x = i => padL + (n<=1 ? w/2 : i*w/(n-1));
+  const y = v => padT + h - (v/max)*h;
+
+  // grille + graduations
+  ctx.strokeStyle="#eef1f4"; ctx.lineWidth=1;
+  ctx.fillStyle="#7a8a99"; ctx.font="10px sans-serif"; ctx.textAlign="right"; ctx.textBaseline="middle";
+  for(let g=0; g<=3; g++){
+    const gy = padT + h - (g/3)*h;
+    ctx.beginPath(); ctx.moveTo(padL,gy); ctx.lineTo(W-padR,gy); ctx.stroke();
+    ctx.fillText(fmt(Math.round(max*g/3)), padL-6, gy);
+  }
+  // étiquettes de l'axe des abscisses
+  ctx.textAlign="center"; ctx.textBaseline="top";
+  s.labels.forEach((l,i)=>{ if(l) ctx.fillText(l, x(i), padT+h+6); });
+
+  const trace = (vals, color, fill)=>{
+    if(fill){
+      const grad = ctx.createLinearGradient(0,padT,0,padT+h);
+      grad.addColorStop(0, color+"33"); grad.addColorStop(1, color+"00");
+      ctx.beginPath(); ctx.moveTo(x(0), padT+h);
+      vals.forEach((v,i)=>ctx.lineTo(x(i), y(v)));
+      ctx.lineTo(x(n-1), padT+h); ctx.closePath();
+      ctx.fillStyle=grad; ctx.fill();
+    }
+    ctx.beginPath();
+    vals.forEach((v,i)=>{ i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)); });
+    ctx.strokeStyle=color; ctx.lineWidth=2.4; ctx.lineJoin="round"; ctx.lineCap="round"; ctx.stroke();
+    // points (masqués quand la série est trop dense, ex. 30 jours)
+    if(n<=13){
+      vals.forEach((v,i)=>{
+        ctx.beginPath(); ctx.arc(x(i),y(v),3.2,0,Math.PI*2);
+        ctx.fillStyle="#fff"; ctx.fill();
+        ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
+      });
+    }
+  };
+  trace(s.inc, "#0e9f6e", false);
+  trace(s.exp, "#ef4444", true);
+}
+// la courbe est dessinée en pixels : on la redessine si la largeur change
+window.addEventListener("resize",()=>{
+  if(S && $("#screen-stats").classList.contains("active")) drawLineChart(statsSeries());
+});
+
+/* ============================================================
    SHEETS (modales) : éditer tx, revenu, budget, objectifs
 ============================================================ */
 function openSheet(html){
@@ -1138,6 +1325,7 @@ function renderAll(){
   renderSaving();
   renderHistory();
   renderDebts();
+  renderStats();
 }
 /* ============================================================
    VERROUILLAGE PAR CODE (pavé 0-9)

@@ -193,6 +193,27 @@
   .legend .ln{flex:1;font-weight:600;}
   .legend .lv{color:var(--muted);font-variant-numeric:tabular-nums;}
 
+  /* statistiques : courbe + chiffres clés */
+  .chartwrap{width:100%;height:190px;position:relative;}
+  .chartwrap canvas{width:100%;height:100%;display:block;}
+  .chartlegend{display:flex;gap:16px;justify-content:center;margin-top:10px;font-size:12px;color:var(--muted);font-weight:700;}
+  .chartlegend .cl{display:flex;align-items:center;gap:6px;}
+  .chartlegend i{width:14px;height:4px;border-radius:2px;display:inline-block;}
+  .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .kpi{background:#f7f9fa;border-radius:14px;padding:12px;}
+  .kpi .k{font-size:11px;color:var(--muted);font-weight:700;line-height:1.3;}
+  .kpi .v{font-size:18px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.4px;}
+  .kpi .h{font-size:11px;color:var(--muted);margin-top:2px;}
+  .statline{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .statline:last-child{border-bottom:0;}
+  .statline .sl{color:var(--muted);font-weight:600;}
+  .statline .sv{font-weight:800;text-align:right;font-variant-numeric:tabular-nums;}
+  .catstat{margin-bottom:12px;}
+  .catstat:last-child{margin-bottom:0;}
+  .catstat .ch{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px;}
+  .catstat .cn{font-weight:700;}
+  .catstat .cv{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:700;}
+
   /* dépenses par jour & catégorie */
   .dayblock{margin-bottom:16px;}
   .dayblock:last-child{margin-bottom:0;}

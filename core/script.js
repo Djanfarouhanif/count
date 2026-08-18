@@ -36,6 +36,7 @@ function freshState(){
     savings: [],       // mouvements d'épargne {id, target:"reserve"|goalId, amount(+/-), date(ISO)}
     reserve: 0,        // épargne de sécurité = réserve libre (sans cible)
     soldeAdjust: 0,    // correction manuelle du SEUL argent global (n'entre dans aucun historique/stat)
+    recurrents: [],    // dépenses automatiques {id, amount, catId, note, day(1-28), since:"YYYY-MM", active, skips:[]}
     debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
                        //   réglée -> un vrai mouvement (tx ou income) portant debtId est créé
     goals: [],         // objectifs d'achat {id, name, target, saved, due}
@@ -72,6 +73,13 @@ function normalize(s){
   }
   s.reserve = Number(s.reserve) || 0;
   s.soldeAdjust = Number(s.soldeAdjust) || 0;
+  s.recurrents = s.recurrents || [];
+  s.recurrents.forEach(r=>{
+    r.amount = Number(r.amount) || 0;
+    r.day    = Math.min(28, Math.max(1, Number(r.day) || 1));
+    r.active = r.active !== false;
+    r.skips  = r.skips || [];
+  });
   // migration : un règlement de dette/créance devient un VRAI mouvement d'argent.
   // Avant, le solde global lisait directement les lignes réglées : supprimer une dette
   // déjà payée faisait bouger l'argent global. Maintenant le règlement crée une dépense
@@ -236,6 +244,40 @@ function ensureSalary(){
     if(yms===cur) break;
     m++; if(m>12){m=1;y++;}
   }
+  return changed;
+}
+
+function daysInMonth(y,m){ return new Date(y, m, 0).getDate(); }   // m = 1-12
+/* Enregistre les DÉPENSES RÉCURRENTES (loyer, internet, abonnements…) pour chaque
+   mois écoulé depuis leur création, exactement comme le salaire pour les revenus.
+   - une seule dépense par récurrente et par mois (clé recId + recMonth)
+   - le mois en cours n'est enregistré qu'à partir du jour d'échéance : on n'anticipe pas
+   - une dépense générée puis supprimée à la main n'est pas recréée (liste "skips") */
+function ensureRecurrents(){
+  if(!S.recurrents || !S.recurrents.length) return false;
+  const cur = nowYM(), todayD = new Date().getDate();
+  let changed = false;
+  S.recurrents.forEach(r=>{
+    if(!r.active || !r.amount) return;
+    let [y,m] = (r.since || cur).split("-").map(Number);
+    let guard = 0;
+    while(guard++ < 600){
+      const yms = y+"-"+String(m).padStart(2,"0");
+      const dueDay = Math.min(r.day || 1, daysInMonth(y,m));
+      const tropTot = (yms===cur && todayD < dueDay);      // échéance pas encore arrivée
+      const efface  = (r.skips||[]).includes(yms);          // supprimée à la main ce mois-là
+      if(!tropTot && !efface && !S.tx.some(t=>t.recId===r.id && t.recMonth===yms)){
+        S.tx.push({
+          id:uid(), amount:r.amount, catId:r.catId, note:r.note||"",
+          date:`${yms}-${String(dueDay).padStart(2,"0")}T09:00:00.000Z`,
+          recId:r.id, recMonth:yms
+        });
+        changed = true;
+      }
+      if(yms===cur) break;
+      m++; if(m>12){m=1;y++;}
+    }
+  });
   return changed;
 }
 
@@ -525,7 +567,91 @@ function renderBudget(){
     </div>`;
   }).join("");
   $$("#catBudgetBars .prog[data-catedit]").forEach(el=>el.addEventListener("click",()=>openCategorySheet(el.dataset.catedit)));
+
+  renderRecurrents();
 }
+
+/* ----- Dépenses récurrentes : liste + édition ----- */
+function renderRecurrents(){
+  const list = S.recurrents || [];
+  const total = list.filter(r=>r.active).reduce((a,r)=>a+r.amount,0);
+  $("#recurrentsList").innerHTML = list.length
+    ? list.slice().sort((a,b)=>a.day-b.day).map(recRow).join("")
+      + `<div class="statline" style="border-top:1px solid var(--line);border-bottom:0;margin-top:6px;">
+           <span class="sl">Total engagé chaque mois</span><span class="sv">${fmtF(total)}</span>
+         </div>`
+    : `<div class="empty" style="padding:14px 10px;">Aucune dépense récurrente.</div>`;
+  $$("#recurrentsList .recrow").forEach(el=>el.addEventListener("click",()=>openRecurrentSheet(el.dataset.rid)));
+}
+function recRow(r){
+  const c = catById(r.catId);
+  return `<div class="recrow${r.active?"":" off"}" data-rid="${r.id}">
+    <div class="rav" style="background:${c.color}22;">${c.icon}</div>
+    <div class="rmeta">
+      <div class="rt">${escapeHtml(r.note || c.name)}</div>
+      <div class="rs">Le ${r.day} de chaque mois${r.active?"":" · en pause"}</div>
+    </div>
+    <div class="rv">${fmt(r.amount)}</div>
+  </div>`;
+}
+function openRecurrentSheet(id){
+  const r = id ? (S.recurrents||[]).find(x=>x.id===id) : null;
+  const isNew = !r;
+  const jours = Array.from({length:28},(_,i)=>i+1);
+  openSheet(`
+    <h3>${isNew?"🔁 Nouvelle dépense récurrente":"🔁 Modifier la récurrente"}</h3>
+    <div class="small">Elle sera enregistrée automatiquement chaque mois, à la date choisie. Le mois en cours n'est saisi qu'une fois le jour arrivé.</div>
+    <label class="fld">Montant (FCFA)</label>
+    <input id="rcAmt" inputmode="numeric" value="${r?fmt(r.amount):""}" placeholder="0" />
+    <label class="fld">Catégorie</label>
+    <select id="rcCat">${S.cats.map(c=>`<option value="${c.id}" ${r&&c.id===r.catId?"selected":""}>${c.icon} ${c.name}</option>`).join("")}</select>
+    <label class="fld">Jour du mois</label>
+    <select id="rcDay">${jours.map(j=>`<option value="${j}" ${((r?r.day:1)===j)?"selected":""}>Le ${j}</option>`).join("")}</select>
+    <label class="fld">Nom (optionnel)</label>
+    <input id="rcNote" value="${r?escapeHtml(r.note||""):""}" placeholder="ex : Loyer, Forfait Orange…" />
+    <div style="height:16px;"></div>
+    <button class="btn" id="rcSave">${isNew?"Créer la récurrente":"Enregistrer"}</button>
+    ${isNew?"":`
+      <div style="height:10px;"></div>
+      <button class="btn ghost" id="rcToggle">${r.active?"⏸ Mettre en pause":"▶️ Réactiver"}</button>
+      <div style="text-align:center;margin-top:12px;">
+        <button class="danger-link" id="rcDel">🗑 Supprimer cette récurrente</button>
+        <div class="small" style="margin-top:4px;">Les dépenses déjà enregistrées restent dans ton historique.</div>
+      </div>`}
+  `);
+  $("#rcAmt").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=d?fmt(d):"";});
+  if(isNew) setTimeout(()=>$("#rcAmt").focus(),120);
+
+  $("#rcSave").addEventListener("click",()=>{
+    const amt = Number($("#rcAmt").value.replace(/\D/g,""));
+    if(!amt){ shake($("#rcAmt")); return; }
+    const day = Number($("#rcDay").value);
+    if(isNew){
+      S.recurrents.push({id:uid(), amount:amt, catId:$("#rcCat").value, note:$("#rcNote").value.trim(),
+                         day, since:nowYM(), active:true, skips:[]});
+    }else{
+      // le changement de montant/jour ne vaut que pour les mois à venir
+      r.amount=amt; r.catId=$("#rcCat").value; r.note=$("#rcNote").value.trim(); r.day=day;
+    }
+    ensureRecurrents();
+    save();closeSheet();toast(isNew?"Récurrente créée 🔁":"Récurrente modifiée ✅");renderAll();
+  });
+
+  if(!isNew){
+    $("#rcToggle").addEventListener("click",()=>{
+      r.active = !r.active;
+      if(r.active) ensureRecurrents();
+      save();closeSheet();toast(r.active?"Récurrente réactivée":"Récurrente en pause");renderAll();
+    });
+    $("#rcDel").addEventListener("click",()=>{
+      S.recurrents = S.recurrents.filter(x=>x.id!==id);
+      S.tx.forEach(t=>{ if(t.recId===id) delete t.recId; });  // les dépenses passées deviennent ordinaires
+      save();closeSheet();toast("Récurrente supprimée");renderAll();
+    });
+  }
+}
+$("#addRecurrent").addEventListener("click",()=>openRecurrentSheet());
+
 function progBar(name, used, budget, isSaving){
   const pct = budget>0 ? Math.round(used/budget*100) : 0;
   let cls = "";
@@ -1041,10 +1167,12 @@ function openTxSheet(id){
   const t=S.tx.find(x=>x.id===id); if(!t)return;
   const c=catById(t.catId);
   const linked = t.debtId ? S.debts.find(x=>x.id===t.debtId) : null;
+  const rec    = t.recId  ? (S.recurrents||[]).find(x=>x.id===t.recId) : null;
   openSheet(`
     <h3>${c.icon} ${c.name}</h3>
     <div class="small">${new Date(t.date).toLocaleString("fr-FR")}</div>
     ${linked?`<div class="small">💳 Remboursement de la dette envers <b>${escapeHtml(linked.person||"—")}</b>. La supprimer remettra cette dette « à payer ».</div>`:""}
+    ${rec?`<div class="small">🔁 Enregistrée automatiquement (<b>${escapeHtml(rec.note||c.name)}</b>). La modifier ne change que ce mois-ci ; la supprimer ne la fera pas revenir.</div>`:""}
     <label class="fld">Montant (FCFA)</label>
     <input id="edAmt" inputmode="numeric" value="${fmt(t.amount)}" />
     <label class="fld">Catégorie</label>
@@ -1069,6 +1197,8 @@ function openTxSheet(id){
   });
   $("#edDel").addEventListener("click",()=>{
     if(linked){ linked.settled=false; linked.settledDate=""; } // la dette redevient à payer
+    // dépense générée par une récurrente : on mémorise le mois pour ne pas la recréer
+    if(rec && t.recMonth && !rec.skips.includes(t.recMonth)) rec.skips.push(t.recMonth);
     S.tx=S.tx.filter(x=>x.id!==id);save();closeSheet();
     toast(linked?"Remboursement annulé — dette à payer":"Supprimé");renderAll();
   });
@@ -1415,7 +1545,9 @@ $("#lockBtn").addEventListener("click",()=>{
 // Démarrage : on charge les données depuis le serveur AVANT d'afficher
 (async function init(){
   S = await load();   // marche même hors-ligne (cache local)
-  if(ensureSalary() || needsSave) save();   // crédite le salaire + persiste la migration
+  // attention : pas de court-circuit, les deux doivent tourner
+  const salOk = ensureSalary(), recOk = ensureRecurrents();
+  if(salOk || recOk || needsSave) save();   // salaire + dépenses récurrentes + migrations
   renderCatGrid();
   if(S.pin && S.pin.length){
     showLock("enter");         // un code existe -> on le demande

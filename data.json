@@ -141,6 +141,22 @@
       "catId": "remb_dette",
       "note": "Dette remboursée · MO",
       "date": "2026-07-31T01:47:42.495Z"
+    },
+    {
+      "id": "msz0q8vo553",
+      "amount": 10000,
+      "catId": "nourriture",
+      "note": "",
+      "date": "2026-08-18T18:50:56.244Z"
+    },
+    {
+      "id": "msz0ry6h6u9",
+      "amount": 1000,
+      "catId": "loyer",
+      "note": "",
+      "date": "2026-08-04T09:00:00.000Z",
+      "recId": "msz0ry6h6fi",
+      "recMonth": "2026-08"
     }
   ],
   "savings": [
@@ -191,6 +207,18 @@
     }
   ],
   "reserve": 200000,
-  "updatedAt": "2026-08-04T16:51:40.230Z",
-  "soldeAdjust": -638200
+  "updatedAt": "2026-08-18T18:52:15.690Z",
+  "soldeAdjust": -638200,
+  "recurrents": [
+    {
+      "id": "msz0ry6h6fi",
+      "amount": 1000,
+      "catId": "loyer",
+      "note": "",
+      "day": 4,
+      "since": "2026-08",
+      "active": true,
+      "skips": []
+    }
+  ]
 }

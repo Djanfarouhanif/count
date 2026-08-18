@@ -193,6 +193,16 @@
   .legend .ln{flex:1;font-weight:600;}
   .legend .lv{color:var(--muted);font-variant-numeric:tabular-nums;}
 
+  /* dépenses récurrentes */
+  .recrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+  .recrow:last-child{border-bottom:0;}
+  .recrow.off{opacity:.5;}
+  .recrow .rav{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:17px;flex:0 0 auto;}
+  .recrow .rmeta{flex:1;min-width:0;}
+  .recrow .rt{font-weight:700;font-size:14px;}
+  .recrow .rs{font-size:12px;color:var(--muted);}
+  .recrow .rv{font-weight:800;font-variant-numeric:tabular-nums;font-size:14px;}
+
   /* statistiques : courbe + chiffres clés */
   .chartwrap{width:100%;height:190px;position:relative;}
   .chartwrap canvas{width:100%;height:100%;display:block;}

@@ -118,6 +118,22 @@
       "date": "2026-08-01T08:00:00.000Z",
       "auto": true,
       "month": "2026-08"
+    },
+    {
+      "id": "muvx832c25u",
+      "amount": 410000,
+      "note": "Salaire",
+      "date": "2026-09-01T08:00:00.000Z",
+      "auto": true,
+      "month": "2026-09"
+    },
+    {
+      "id": "muvx832c57",
+      "amount": 410000,
+      "note": "Salaire",
+      "date": "2026-10-01T08:00:00.000Z",
+      "auto": true,
+      "month": "2026-10"
     }
   ],
   "tx": [
@@ -157,6 +173,24 @@
       "date": "2026-08-04T09:00:00.000Z",
       "recId": "msz0ry6h6fi",
       "recMonth": "2026-08"
+    },
+    {
+      "id": "muvx832c1ta",
+      "amount": 1000,
+      "catId": "loyer",
+      "note": "",
+      "date": "2026-09-04T09:00:00.000Z",
+      "recId": "msz0ry6h6fi",
+      "recMonth": "2026-09"
+    },
+    {
+      "id": "muvx832c1u4",
+      "amount": 1000,
+      "catId": "loyer",
+      "note": "",
+      "date": "2026-10-04T09:00:00.000Z",
+      "recId": "msz0ry6h6fi",
+      "recMonth": "2026-10"
     }
   ],
   "savings": [
@@ -207,7 +241,7 @@
     }
   ],
   "reserve": 200000,
-  "updatedAt": "2026-08-18T18:52:15.690Z",
+  "updatedAt": "2026-10-06T00:08:56.196Z",
   "soldeAdjust": -638200,
   "recurrents": [
     {

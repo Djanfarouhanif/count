@@ -40,6 +40,8 @@ function freshState(){
     debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
                        //   réglée -> un vrai mouvement (tx ou income) portant debtId est créé
     goals: [],         // objectifs d'achat {id, name, target, saved, due}
+    events: [],        // événements planifiés {id, name, date:"YYYY-MM-DD", time, place, cost, note, status:"prevu"|"annule"}
+                       //   payé -> une dépense portant eventId est créée
   };
 }
 
@@ -62,6 +64,8 @@ function normalize(s){
   s.savings = s.savings || [];
   s.debts   = s.debts || [];
   s.goals   = s.goals || [];
+  s.events  = s.events || [];
+  s.events.forEach(e=>{ e.cost = Number(e.cost) || 0; e.status = e.status==="annule" ? "annule" : "prevu"; });
   s.tx      = s.tx || [];
   // migration : sépare l'épargne de sécurité (réserve) des objectifs d'achat.
   // L'ancien « Fonds d'urgence » devient la réserve de sécurité.
@@ -511,6 +515,20 @@ function openCategorySheet(id){
 }
 
 /* ============================================================
+   BUDGET & ÉPARGNE : un seul onglet, deux vues (Budget | Épargne)
+============================================================ */
+let budgetView = "budget";
+function setBudgetView(v){
+  budgetView = v;
+  $$("#budgetSeg button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
+  $("#panel-budget").style.display = v==="budget" ? "" : "none";
+  $("#panel-saving").style.display = v==="saving" ? "" : "none";
+  $("#budgetSub").textContent = v==="budget" ? "Répartition de ton revenu" : "Sécurise ton argent 🛡️";
+  const c=$("#content"); if(c) c.scrollTop=0;
+}
+$$("#budgetSeg button").forEach(b=>b.addEventListener("click",()=>setBudgetView(b.dataset.v)));
+
+/* ============================================================
    BUDGET 50/30/20
 ============================================================ */
 function renderBudget(){
@@ -729,6 +747,164 @@ function openReserve(sense){
 }
 $("#reserveAdd").addEventListener("click",()=>openReserve("add"));
 $("#reserveSub").addEventListener("click",()=>openReserve("sub"));
+
+/* ============================================================
+   ÉVÉNEMENTS
+   Planifier les événements auxquels on veut participer (date, lieu, coût prévu).
+   « Payer » crée une vraie dépense portant eventId : l'événement est alors payé.
+   Supprimer cette dépense le remet « à payer » ; supprimer l'événement garde la dépense.
+============================================================ */
+const WEEKDAYS = ["dim.","lun.","mar.","mer.","jeu.","ven.","sam."];
+function eventPaidTx(e){ return S.tx.find(t=>t.eventId===e.id); }
+function daysUntil(dstr){
+  const [y,m,d] = dstr.split("-").map(Number);
+  const t = new Date(); t.setHours(0,0,0,0);
+  return Math.round((new Date(y,m-1,d) - t) / 86400000);
+}
+function renderEvents(){
+  const evs = S.events || [];
+  const upcoming = evs.filter(e=>daysUntil(e.date)>=0).sort((a,b)=>(a.date+(a.time||"")).localeCompare(b.date+(b.time||"")));
+  const past     = evs.filter(e=>daysUntil(e.date)<0).sort((a,b)=>b.date.localeCompare(a.date));
+  const planned  = upcoming.filter(e=>e.status!=="annule");
+  $("#evCount").textContent  = planned.length;
+  $("#evBudget").textContent = fmt(planned.filter(e=>!eventPaidTx(e)).reduce((a,e)=>a+e.cost,0));
+  $("#evSpent").textContent  = fmt(txOfMonth(nowYM()).filter(t=>t.eventId).reduce((a,t)=>a+t.amount,0));
+  const next = planned[0];
+  $("#eventsSub").textContent = next
+    ? `Prochain : ${next.name} · ${countdownLabel(daysUntil(next.date))}`
+    : "Planifie ceux auxquels tu veux participer";
+  $("#eventsUpcoming").innerHTML = upcoming.length ? upcoming.map(eventCard).join("")
+    : `<div class="empty">Aucun événement prévu. Planifie-en un 🎟️</div>`;
+  $("#eventsPast").innerHTML = past.length ? past.map(eventCard).join("")
+    : `<div class="empty">Aucun événement passé.</div>`;
+  $$("#screen-events .event").forEach(card=>{
+    const id = card.dataset.id;
+    const btn = act=>card.querySelector(`[data-act="${act}"]`);
+    if(btn("edit")) btn("edit").addEventListener("click",()=>openEventSheet(id));
+    if(btn("pay"))  btn("pay").addEventListener("click",()=>openPayEvent(id));
+    if(btn("unpay")) btn("unpay").addEventListener("click",()=>{
+      S.tx = S.tx.filter(t=>t.eventId!==id);
+      save();toast("Paiement annulé — dépense retirée");renderAll();
+    });
+  });
+}
+function countdownLabel(n){
+  if(n===0) return "aujourd'hui";
+  if(n===1) return "demain";
+  if(n>1)   return `dans ${n} jours`;
+  return n===-1 ? "hier" : `il y a ${-n} jours`;
+}
+function eventCard(e){
+  const n = daysUntil(e.date);
+  const [y,m,d] = e.date.split("-").map(Number);
+  const dt = new Date(y,m-1,d);
+  const paid = eventPaidTx(e);
+  const cancelled = e.status==="annule";
+  let badge;
+  if(cancelled)   badge = `<span class="badge off">Annulé</span>`;
+  else if(n<0)    badge = `<span class="badge">Terminé</span>`;
+  else if(n<=7)   badge = `<span class="badge soon">${countdownLabel(n)}</span>`;
+  else            badge = `<span class="badge">${countdownLabel(n)}</span>`;
+  const costLine = paid
+    ? `<span class="badge ok">Payé ${fmt(paid.amount)} FCFA ✓</span>`
+    : (e.cost ? `<span class="evcost">Coût prévu : <b>${fmt(e.cost)} FCFA</b></span>` : `<span class="evcost">Gratuit / coût non défini</span>`);
+  return `<div class="card event${cancelled?" cancelled":""}" data-id="${e.id}">
+    <div class="evtop">
+      <div class="evdate"><div class="evd">${d}</div><div class="evm">${MONTHS[m-1].slice(0,4)}.</div></div>
+      <div class="evmeta">
+        <div class="evname">${escapeHtml(e.name)}</div>
+        <div class="small">${WEEKDAYS[dt.getDay()]} ${d} ${MONTHS[m-1]} ${y}${e.time?` · ${e.time}`:""}</div>
+        ${e.place?`<div class="small">📍 ${escapeHtml(e.place)}</div>`:""}
+      </div>
+      ${badge}
+    </div>
+    ${e.note?`<div class="small" style="margin-top:8px;">${escapeHtml(e.note)}</div>`:""}
+    <div class="debt-actions">
+      ${costLine}
+      <span style="flex:1"></span>
+      ${cancelled ? "" : (paid ? `<button class="linkbtn" data-act="unpay">Annuler le paiement</button>`
+                               : `<button class="btn sm" data-act="pay">Payer</button>`)}
+      <button class="linkbtn" data-act="edit">Modifier</button>
+    </div>
+  </div>`;
+}
+function openEventSheet(id){
+  const e = id ? S.events.find(x=>x.id===id) : null;
+  const isNew = !e;
+  openSheet(`
+    <h3>${isNew?"🎟️ Planifier un événement":"🎟️ Modifier l'événement"}</h3>
+    <label class="fld">Nom de l'événement</label>
+    <input id="evName" value="${e?escapeHtml(e.name):""}" placeholder="ex : Concert, mariage d'Awa, conférence…" />
+    <div style="display:flex;gap:10px;">
+      <div style="flex:1;"><label class="fld">Date</label><input id="evDate" type="date" value="${e?e.date:todayDate()}" /></div>
+      <div style="flex:1;"><label class="fld">Heure (optionnel)</label><input id="evTime" type="time" value="${e?e.time||"":""}" /></div>
+    </div>
+    <label class="fld">Lieu (optionnel)</label>
+    <input id="evPlace" value="${e?escapeHtml(e.place||""):""}" placeholder="ex : Palais des congrès" />
+    <label class="fld">Coût prévu (FCFA, optionnel)</label>
+    <input id="evCost" inputmode="numeric" value="${e&&e.cost?fmt(e.cost):""}" placeholder="billet, tenue, transport…" />
+    <label class="fld">Note (optionnel)</label>
+    <input id="evNote" value="${e?escapeHtml(e.note||""):""}" placeholder="ex : y aller avec Koffi" />
+    ${isNew?"":`
+      <label class="fld">Statut</label>
+      <div class="seg" id="evStatus">
+        <button type="button" data-s="prevu" class="${e.status!=="annule"?"on":""}">Je participe</button>
+        <button type="button" data-s="annule" class="${e.status==="annule"?"on":""}">Annulé</button>
+      </div>`}
+    <div style="height:14px;"></div>
+    <button class="btn" id="evSave">${isNew?"Planifier":"Enregistrer"}</button>
+    ${isNew?"":`<div style="text-align:center;margin-top:12px;">
+      <button class="danger-link" id="evDel">🗑 Supprimer l'événement</button>
+      ${eventPaidTx(e)?`<div class="small" style="margin-top:4px;">La dépense déjà payée reste dans ton historique.</div>`:""}
+    </div>`}
+  `);
+  let status = e ? e.status : "prevu";
+  $$("#evStatus button").forEach(b=>b.addEventListener("click",()=>{ status=b.dataset.s; $$("#evStatus button").forEach(x=>x.classList.toggle("on",x===b)); }));
+  $("#evCost").addEventListener("input",ev=>{const d=ev.target.value.replace(/\D/g,"");ev.target.value=d?fmt(d):"";});
+  if(isNew) setTimeout(()=>$("#evName").focus(),120);
+  $("#evSave").addEventListener("click",()=>{
+    const name = $("#evName").value.trim();
+    if(!name){ shake($("#evName")); return; }
+    const date = $("#evDate").value;
+    if(!date){ shake($("#evDate")); return; }
+    const data = {name, date, time:$("#evTime").value||"", place:$("#evPlace").value.trim(),
+                  cost:Number($("#evCost").value.replace(/\D/g,""))||0, note:$("#evNote").value.trim(), status};
+    if(isNew) S.events.push({id:uid(), ...data});
+    else Object.assign(e, data);
+    save();closeSheet();toast(isNew?"Événement planifié 🎟️":"Événement modifié ✅");renderAll();
+  });
+  if(!isNew) $("#evDel").addEventListener("click",()=>{
+    S.tx.forEach(t=>{ if(t.eventId===id) delete t.eventId; });  // la dépense payée devient ordinaire
+    S.events = S.events.filter(x=>x.id!==id);
+    save();closeSheet();toast("Événement supprimé");renderAll();
+  });
+}
+// Payer l'événement : crée une dépense réelle reliée par eventId
+function openPayEvent(id){
+  const e = S.events.find(x=>x.id===id); if(!e) return;
+  const defCat = S.cats.some(c=>c.id==="loisirs") ? "loisirs" : S.cats[0].id;
+  openSheet(`
+    <h3>💳 Payer « ${escapeHtml(e.name)} »</h3>
+    <div class="small">Une dépense sera enregistrée dans ton historique et déduite de ton argent disponible (${fmtF(soldeGlobal())}).</div>
+    <label class="fld">Montant payé (FCFA)</label>
+    <input id="epAmt" inputmode="numeric" value="${e.cost?fmt(e.cost):""}" placeholder="0" />
+    <label class="fld">Catégorie</label>
+    <select id="epCat">${S.cats.map(c=>`<option value="${c.id}" ${c.id===defCat?"selected":""}>${c.icon} ${c.name}</option>`).join("")}</select>
+    <label class="fld">Date du paiement</label>
+    <input id="epDate" type="date" value="${todayDate()}" />
+    <div style="height:14px;"></div>
+    <button class="btn" id="epSave">Enregistrer la dépense</button>
+  `);
+  $("#epAmt").addEventListener("input",ev=>{const d=ev.target.value.replace(/\D/g,"");ev.target.value=d?fmt(d):"";});
+  setTimeout(()=>$("#epAmt").focus(),120);
+  $("#epSave").addEventListener("click",()=>{
+    const amt = Number($("#epAmt").value.replace(/\D/g,""));
+    if(!amt){ shake($("#epAmt")); return; }
+    S.tx.push({id:uid(), amount:amt, catId:$("#epCat").value, note:"🎟️ "+e.name, date:dateFromInput($("#epDate").value), eventId:e.id});
+    save();closeSheet();toast("Événement payé — dépense enregistrée");renderAll();
+  });
+}
+$("#addEvent").addEventListener("click",()=>openEventSheet());
 
 /* ============================================================
    DETTES & CRÉANCES
@@ -1172,6 +1348,7 @@ function openTxSheet(id){
     <h3>${c.icon} ${c.name}</h3>
     <div class="small">${new Date(t.date).toLocaleString("fr-FR")}</div>
     ${linked?`<div class="small">💳 Remboursement de la dette envers <b>${escapeHtml(linked.person||"—")}</b>. La supprimer remettra cette dette « à payer ».</div>`:""}
+    ${t.eventId?`<div class="small">🎟️ Dépense liée à un événement. La supprimer remettra l'événement « à payer ».</div>`:""}
     ${rec?`<div class="small">🔁 Enregistrée automatiquement (<b>${escapeHtml(rec.note||c.name)}</b>). La modifier ne change que ce mois-ci ; la supprimer ne la fera pas revenir.</div>`:""}
     <label class="fld">Montant (FCFA)</label>
     <input id="edAmt" inputmode="numeric" value="${fmt(t.amount)}" />
@@ -1453,6 +1630,7 @@ function renderAll(){
   renderHome();
   renderBudget();
   renderSaving();
+  renderEvents();
   renderHistory();
   renderDebts();
   renderStats();

@@ -293,6 +293,20 @@
   .linkbtn{background:none;border:0;color:var(--blue);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;padding:0;}
   .linkbtn.danger{color:var(--red);}
 
+  /* événements */
+  .badge{background:#eef1f4;color:var(--muted);white-space:nowrap;}
+  .badge.soon{background:#fff7e6;color:#9a6700;}
+  .badge.off{background:var(--red-soft);color:#b42318;}
+  .event .evtop{display:flex;align-items:flex-start;gap:12px;}
+  .event .evdate{width:48px;flex:0 0 auto;text-align:center;background:var(--green-soft);color:#0a6b4a;border-radius:13px;padding:6px 0;}
+  .event .evd{font-size:20px;font-weight:800;line-height:1.1;}
+  .event .evm{font-size:11px;font-weight:700;text-transform:uppercase;}
+  .event .evmeta{flex:1;min-width:0;}
+  .event .evname{font-weight:800;font-size:16px;margin-bottom:2px;}
+  .event .evcost{font-size:13px;color:var(--muted);}
+  .event.cancelled{opacity:.55;}
+  .event.cancelled .evname{text-decoration:line-through;}
+
   .iconbtn{background:rgba(0,0,0,.05);border:0;border-radius:50%;width:38px;height:38px;font-size:18px;cursor:pointer;flex:0 0 auto;}
   .syncdot{font-size:10.5px;font-weight:700;white-space:nowrap;}
 

@@ -774,7 +774,7 @@ function renderEvents(){
     ? `Prochain : ${next.name} · ${countdownLabel(daysUntil(next.date))}`
     : "Planifie ceux auxquels tu veux participer";
   $("#eventsUpcoming").innerHTML = upcoming.length ? upcoming.map(eventCard).join("")
-    : `<div class="empty">Aucun événement prévu. Planifie-en un 🎟️</div>`;
+    : `<div class="empty">Aucun événement prévu. Planifie-en un.</div>`;
   $("#eventsPast").innerHTML = past.length ? past.map(eventCard).join("")
     : `<div class="empty">Aucun événement passé.</div>`;
   $$("#screen-events .event").forEach(card=>{
@@ -832,7 +832,7 @@ function openEventSheet(id){
   const e = id ? S.events.find(x=>x.id===id) : null;
   const isNew = !e;
   openSheet(`
-    <h3>${isNew?"🎟️ Planifier un événement":"🎟️ Modifier l'événement"}</h3>
+    <h3>${isNew?"Planifier un événement":"Modifier l'événement"}</h3>
     <label class="fld">Nom de l'événement</label>
     <input id="evName" value="${e?escapeHtml(e.name):""}" placeholder="ex : Concert, mariage d'Awa, conférence…" />
     <div style="display:flex;gap:10px;">
@@ -871,7 +871,7 @@ function openEventSheet(id){
                   cost:Number($("#evCost").value.replace(/\D/g,""))||0, note:$("#evNote").value.trim(), status};
     if(isNew) S.events.push({id:uid(), ...data});
     else Object.assign(e, data);
-    save();closeSheet();toast(isNew?"Événement planifié 🎟️":"Événement modifié ✅");renderAll();
+    save();closeSheet();toast(isNew?"Événement planifié ✅":"Événement modifié ✅");renderAll();
   });
   if(!isNew) $("#evDel").addEventListener("click",()=>{
     S.tx.forEach(t=>{ if(t.eventId===id) delete t.eventId; });  // la dépense payée devient ordinaire
@@ -900,7 +900,7 @@ function openPayEvent(id){
   $("#epSave").addEventListener("click",()=>{
     const amt = Number($("#epAmt").value.replace(/\D/g,""));
     if(!amt){ shake($("#epAmt")); return; }
-    S.tx.push({id:uid(), amount:amt, catId:$("#epCat").value, note:"🎟️ "+e.name, date:dateFromInput($("#epDate").value), eventId:e.id});
+    S.tx.push({id:uid(), amount:amt, catId:$("#epCat").value, note:e.name, date:dateFromInput($("#epDate").value), eventId:e.id});
     save();closeSheet();toast("Événement payé — dépense enregistrée");renderAll();
   });
 }
@@ -1348,7 +1348,7 @@ function openTxSheet(id){
     <h3>${c.icon} ${c.name}</h3>
     <div class="small">${new Date(t.date).toLocaleString("fr-FR")}</div>
     ${linked?`<div class="small">💳 Remboursement de la dette envers <b>${escapeHtml(linked.person||"—")}</b>. La supprimer remettra cette dette « à payer ».</div>`:""}
-    ${t.eventId?`<div class="small">🎟️ Dépense liée à un événement. La supprimer remettra l'événement « à payer ».</div>`:""}
+    ${t.eventId?`<div class="small">Dépense liée à un événement. La supprimer remettra l'événement « à payer ».</div>`:""}
     ${rec?`<div class="small">🔁 Enregistrée automatiquement (<b>${escapeHtml(rec.note||c.name)}</b>). La modifier ne change que ce mois-ci ; la supprimer ne la fera pas revenir.</div>`:""}
     <label class="fld">Montant (FCFA)</label>
     <input id="edAmt" inputmode="numeric" value="${fmt(t.amount)}" />

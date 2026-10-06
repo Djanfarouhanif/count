@@ -169,7 +169,10 @@
 
   <!-- ================= HISTORIQUE ================= -->
   <section class="screen" id="screen-history">
-    <header class="top"><h1>Historique & analyse</h1><div class="sub" id="histMonthLabel"></div></header>
+    <header class="top" style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div><h1>Historique & analyse</h1><div class="sub" id="histMonthLabel"></div></div>
+      <button id="histStatsBtn" class="iconbtn" aria-label="Statistiques de toutes les dépenses" title="Statistiques de toutes les dépenses">📈</button>
+    </header>
     <div style="padding:0 16px;">
       <div class="seg" id="monthSeg">
         <button data-m="0" class="on">Ce mois</button>
@@ -237,6 +240,7 @@
         <button data-p="6" class="on">6 mois</button>
         <button data-p="12">12 mois</button>
         <button data-p="30j">30 jours</button>
+        <button data-p="all">Tout</button>
       </div>
 
       <div class="card">

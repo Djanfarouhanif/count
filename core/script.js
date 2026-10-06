@@ -1145,16 +1145,35 @@ function drawDonut(entries){
    STATISTIQUES (icône 📈 en haut à droite)
    Courbe d'évolution des dépenses + chiffres utiles en dessous.
 ============================================================ */
-let statsPeriod = "6";   // "6" | "12" mois, ou "30j" = 30 derniers jours
+let statsPeriod = "6";   // "6" | "12" mois, "30j" = 30 derniers jours, "all" = tous les mois
+let statsFrom = "home";  // écran vers lequel revient le bouton ‹
+function setStatsPeriod(p){
+  statsPeriod = p;
+  $$("#statsSeg button").forEach(x=>x.classList.toggle("on", x.dataset.p===p));
+}
 $$("#statsSeg button").forEach(b=>{
-  b.addEventListener("click",()=>{
-    statsPeriod = b.dataset.p;
-    $$("#statsSeg button").forEach(x=>x.classList.toggle("on", x===b));
-    renderStats();
-  });
+  b.addEventListener("click",()=>{ setStatsPeriod(b.dataset.p); renderStats(); });
 });
-$("#statsBtn").addEventListener("click",()=>show("stats"));
-$("#statsBack").addEventListener("click",()=>show("home"));
+$("#statsBtn").addEventListener("click",()=>{ statsFrom="home"; show("stats"); });
+// depuis l'historique : statistiques de TOUTES les dépenses, tous les mois confondus
+$("#histStatsBtn").addEventListener("click",()=>{ statsFrom="history"; setStatsPeriod("all"); show("stats"); });
+$("#statsBack").addEventListener("click",()=>show(statsFrom));
+
+// tous les mois depuis le premier mouvement enregistré jusqu'au mois courant
+function allMonths(){
+  const firsts = [...S.tx, ...S.income].map(x=>x.date.slice(0,7)).sort();
+  const cur = nowYM();
+  if(!firsts.length || firsts[0] > cur) return [cur];
+  const out = [];
+  let [y,m] = firsts[0].split("-").map(Number);
+  while(out.length < 1200){
+    const yms = y+"-"+String(m).padStart(2,"0");
+    out.push(yms);
+    if(yms===cur) break;
+    m++; if(m>12){m=1;y++;}
+  }
+  return out;
+}
 
 // n derniers mois, du plus ancien au plus récent : ["2026-03", …, "2026-08"]
 function lastMonths(n){
@@ -1181,18 +1200,21 @@ function statsSeries(){
     const labels = days.map((d,i)=> (i%5===0||i===days.length-1) ? d.slice(8) : "");
     return {keys:days, labels, exp, inc, unit:"jour"};
   }
-  const months = lastMonths(Number(statsPeriod));
+  const months = statsPeriod==="all" ? allMonths() : lastMonths(Number(statsPeriod));
   const exp = months.map(totalOfMonth);
   const inc = months.map(incomeOfMonth);
-  const step = months.length>6 ? 2 : 1;   // sur 12 mois : 1 étiquette sur 2
-  const labels = months.map((m,i)=> (i%step===0||i===months.length-1) ? MONTHS[Number(m.slice(5))-1].slice(0,3) : "");
+  const step = Math.max(1, Math.ceil(months.length/6));   // ~6 étiquettes max sur l'axe
+  const multiYear = months[0].slice(0,4) !== months[months.length-1].slice(0,4);
+  const labels = months.map((m,i)=> (i%step===0||i===months.length-1)
+    ? MONTHS[Number(m.slice(5))-1].slice(0,3) + (multiYear ? " "+m.slice(2,4) : "") : "");
   return {keys:months, labels, exp, inc, unit:"mois"};
 }
 
 function renderStats(){
   const s = statsSeries();
   const nExp = s.exp.reduce((a,v)=>a+v,0);
-  $("#statsPeriodLbl").textContent = statsPeriod==="30j" ? "30 derniers jours" : statsPeriod+" derniers mois";
+  $("#statsPeriodLbl").textContent = statsPeriod==="30j" ? "30 derniers jours"
+    : statsPeriod==="all" ? `depuis ${monthName(s.keys[0])}` : statsPeriod+" derniers mois";
   $("#statsTopLbl").textContent    = $("#statsPeriodLbl").textContent;
   $("#statsSub").textContent = nExp ? `${fmtF(nExp)} dépensés sur la période` : "Évolution de tes dépenses";
   drawLineChart(s);
@@ -1212,6 +1234,8 @@ function renderStats(){
   const tauxEp = revPer ? Math.round((revPer-nExp)/revPer*100) : 0;
   const kpi=(k,v,h)=>`<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div>${h?`<div class="h">${h}</div>`:""}</div>`;
   $("#statsKpis").innerHTML =
+    kpi("Total dépensé", fmt(nExp), statsPeriod==="all" ? `sur ${s.keys.length} mois` : "sur la période") +
+    kpi("Total encaissé", fmt(revPer), statsPeriod==="all" ? "salaires + revenus" : "sur la période") +
     kpi(`Moyenne par ${s.unit}`, fmt(moy), active?`sur ${active} ${s.unit}${active>1?"s":""} avec dépenses`:"—") +
     kpi("Dépense moyenne / jour", fmt(parJour), "ce mois-ci") +
     kpi("Projection fin de mois", fmt(projec), `au rythme actuel (${dsMois} j)`) +
@@ -1222,7 +1246,7 @@ function renderStats(){
   const txs = S.tx.filter(inRange);
   const byCat = {};
   txs.forEach(t=>{ byCat[t.catId]=(byCat[t.catId]||0)+t.amount; });
-  const tops = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const tops = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0, statsPeriod==="all" ? undefined : 5);
   const maxCat = tops.length ? tops[0][1] : 1;
   $("#statsTopCats").innerHTML = tops.length ? tops.map(([id,v])=>{
     const c = catById(id), pct = nExp?Math.round(v/nExp*100):0;

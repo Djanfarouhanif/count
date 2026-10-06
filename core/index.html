@@ -150,19 +150,50 @@
 
   <!-- ================= ÉVÉNEMENTS ================= -->
   <section class="screen" id="screen-events">
-    <header class="top"><h1>Événements</h1><div class="sub" id="eventsSub">Planifie ceux auxquels tu veux participer</div></header>
+    <header class="top" style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div><h1>Événements</h1><div class="sub" id="eventsSub">Planifie ceux auxquels tu veux participer</div></div>
+      <button id="addEvent" class="iconbtn evadd" aria-label="Planifier un événement" title="Planifier un événement">＋</button>
+    </header>
     <div style="padding:0 16px;">
-      <div class="card">
-        <div class="mrow"><span class="ml">Événements à venir</span><span class="mv num" id="evCount">0</span></div>
-        <div class="mrow"><span class="ml">Budget prévu (à venir)</span><span class="mv num" id="evBudget">0</span></div>
-        <div class="mrow"><span class="ml">Dépensé pour les événements ce mois</span><span class="mv num neg" id="evSpent">0</span></div>
+      <div class="evsearch">
+        <span class="evsearch-ico">🔍</span>
+        <input id="evSearch" type="search" placeholder="Rechercher un événement…" autocomplete="off" />
       </div>
-      <button class="btn" id="addEvent">＋ Planifier un événement</button>
-      <div style="height:14px;"></div>
-      <div class="section-title">📅 À venir</div>
-      <div id="eventsUpcoming"></div>
-      <div class="section-title" style="margin-top:8px;">🕘 Passés</div>
-      <div id="eventsPast"></div>
+      <div class="seg evseg" id="evFilter">
+        <button data-f="all" class="on">Tous</button>
+        <button data-f="upcoming">À venir</button>
+        <button data-f="topay">À payer</button>
+        <button data-f="past">Passés</button>
+      </div>
+
+      <div id="evFeatured"></div>
+
+      <div class="evstats">
+        <div class="evstat"><div class="k">À venir</div><div class="v num" id="evCount">0</div></div>
+        <div class="evstat"><div class="k">Budget prévu</div><div class="v num" id="evBudget">0</div></div>
+        <div class="evstat"><div class="k">Payé ce mois</div><div class="v num" id="evSpent">0</div></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">Calendrier
+          <span class="calnav">
+            <button id="calPrev" aria-label="Mois précédent">‹</button>
+            <span id="calLabel"></span>
+            <button id="calNext" aria-label="Mois suivant">›</button>
+          </span>
+        </div>
+        <div class="calhead"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+        <div class="calgrid" id="calGrid"></div>
+        <div class="callegend">
+          <span><i class="lg has"></i>Prévu</span>
+          <span><i class="lg paid"></i>Payé</span>
+          <span><i class="lg past"></i>Passé</span>
+          <span><i class="lg today"></i>Aujourd'hui</span>
+        </div>
+      </div>
+
+      <div class="section-title"><span id="evListTitle">Mes événements</span><span class="link" id="evClearDay"></span></div>
+      <div class="evgrid" id="evGrid"></div>
       <div style="height:18px;"></div>
     </div>
   </section>

@@ -761,74 +761,195 @@ function daysUntil(dstr){
   const t = new Date(); t.setHours(0,0,0,0);
   return Math.round((new Date(y,m-1,d) - t) / 86400000);
 }
-function renderEvents(){
-  const evs = S.events || [];
-  const upcoming = evs.filter(e=>daysUntil(e.date)>=0).sort((a,b)=>(a.date+(a.time||"")).localeCompare(b.date+(b.time||"")));
-  const past     = evs.filter(e=>daysUntil(e.date)<0).sort((a,b)=>b.date.localeCompare(a.date));
-  const planned  = upcoming.filter(e=>e.status!=="annule");
-  $("#evCount").textContent  = planned.length;
-  $("#evBudget").textContent = fmt(planned.filter(e=>!eventPaidTx(e)).reduce((a,e)=>a+e.cost,0));
-  $("#evSpent").textContent  = fmt(txOfMonth(nowYM()).filter(t=>t.eventId).reduce((a,t)=>a+t.amount,0));
-  const next = planned[0];
-  $("#eventsSub").textContent = next
-    ? `Prochain : ${next.name} · ${countdownLabel(daysUntil(next.date))}`
-    : "Planifie ceux auxquels tu veux participer";
-  $("#eventsUpcoming").innerHTML = upcoming.length ? upcoming.map(eventCard).join("")
-    : `<div class="empty">Aucun événement prévu. Planifie-en un.</div>`;
-  $("#eventsPast").innerHTML = past.length ? past.map(eventCard).join("")
-    : `<div class="empty">Aucun événement passé.</div>`;
-  $$("#screen-events .event").forEach(card=>{
-    const id = card.dataset.id;
-    const btn = act=>card.querySelector(`[data-act="${act}"]`);
-    if(btn("edit")) btn("edit").addEventListener("click",()=>openEventSheet(id));
-    if(btn("pay"))  btn("pay").addEventListener("click",()=>openPayEvent(id));
-    if(btn("unpay")) btn("unpay").addEventListener("click",()=>{
-      S.tx = S.tx.filter(t=>t.eventId!==id);
-      save();toast("Paiement annulé — dépense retirée");renderAll();
-    });
-  });
-}
+let evFilter = "all";     // all | upcoming | topay | past
+let evQuery  = "";        // recherche texte (nom, lieu, note)
+let evDay    = "";        // jour choisi dans le calendrier ("YYYY-MM-DD", vide = aucun)
+let calYM    = "";        // mois affiché par le calendrier
 function countdownLabel(n){
   if(n===0) return "aujourd'hui";
   if(n===1) return "demain";
   if(n>1)   return `dans ${n} jours`;
   return n===-1 ? "hier" : `il y a ${-n} jours`;
 }
-function eventCard(e){
-  const n = daysUntil(e.date);
+function evDateLabel(e){
   const [y,m,d] = e.date.split("-").map(Number);
-  const dt = new Date(y,m-1,d);
-  const paid = eventPaidTx(e);
-  const cancelled = e.status==="annule";
-  let badge;
-  if(cancelled)   badge = `<span class="badge off">Annulé</span>`;
-  else if(n<0)    badge = `<span class="badge">Terminé</span>`;
-  else if(n<=7)   badge = `<span class="badge soon">${countdownLabel(n)}</span>`;
-  else            badge = `<span class="badge">${countdownLabel(n)}</span>`;
-  const costLine = paid
-    ? `<span class="badge ok">Payé ${fmt(paid.amount)} FCFA ✓</span>`
-    : (e.cost ? `<span class="evcost">Coût prévu : <b>${fmt(e.cost)} FCFA</b></span>` : `<span class="evcost">Gratuit / coût non défini</span>`);
-  return `<div class="card event${cancelled?" cancelled":""}" data-id="${e.id}">
-    <div class="evtop">
-      <div class="evdate"><div class="evd">${d}</div><div class="evm">${MONTHS[m-1].slice(0,4)}.</div></div>
-      <div class="evmeta">
-        <div class="evname">${escapeHtml(e.name)}</div>
-        <div class="small">${WEEKDAYS[dt.getDay()]} ${d} ${MONTHS[m-1]} ${y}${e.time?` · ${e.time}`:""}</div>
-        ${e.place?`<div class="small">📍 ${escapeHtml(e.place)}</div>`:""}
+  return `${WEEKDAYS[new Date(y,m-1,d).getDay()]} ${d} ${MONTHS[m-1].slice(0,4)}. ${y}`;
+}
+// statut affiché : {cls, txt}
+function evStatus(e){
+  const n = daysUntil(e.date);
+  if(e.status==="annule") return {cls:"off",  txt:"Annulé"};
+  if(eventPaidTx(e))      return {cls:"ok",   txt:n<0?"Payé · terminé":"Payé"};
+  if(n<0)                 return {cls:"past", txt:"Terminé"};
+  return {cls:n<=7?"soon":"up", txt:countdownLabel(n)};
+}
+function renderEvents(){
+  const evs = S.events || [];
+  const byDate = (a,b)=>(a.date+(a.time||"")).localeCompare(b.date+(b.time||""));
+  const upcoming = evs.filter(e=>daysUntil(e.date)>=0).sort(byDate);
+  const past     = evs.filter(e=>daysUntil(e.date)<0).sort((a,b)=>byDate(b,a));
+  const planned  = upcoming.filter(e=>e.status!=="annule");
+  $("#evCount").textContent  = planned.length;
+  $("#evBudget").textContent = fmt(planned.filter(e=>!eventPaidTx(e)).reduce((a,e)=>a+e.cost,0));
+  $("#evSpent").textContent  = fmt(txOfMonth(nowYM()).filter(t=>t.eventId).reduce((a,t)=>a+t.amount,0));
+  $("#eventsSub").textContent = planned.length
+    ? `${planned.length} événement${planned.length>1?"s":""} à venir`
+    : "Planifie ceux auxquels tu veux participer";
+
+  /* ---- carte mise en avant : le prochain événement prévu ---- */
+  const next = planned[0];
+  if(next){
+    const [y,m,d] = next.date.split("-").map(Number);
+    const paid = eventPaidTx(next);
+    const st = evStatus(next);
+    $("#evFeatured").innerHTML = `<div class="evhero" data-id="${next.id}">
+      <div class="evhero-tab"><b>${d} ${MONTHS[m-1].slice(0,4)}.</b><span>${y}</span></div>
+      <div class="evhero-head">
+        <span class="evhero-k">Prochain événement</span>
+        <span class="evhero-st"><i></i>${st.txt}</span>
       </div>
-      ${badge}
-    </div>
-    ${e.note?`<div class="small" style="margin-top:8px;">${escapeHtml(e.note)}</div>`:""}
-    <div class="debt-actions">
-      ${costLine}
-      <span style="flex:1"></span>
-      ${cancelled ? "" : (paid ? `<button class="linkbtn" data-act="unpay">Annuler le paiement</button>`
-                               : `<button class="btn sm" data-act="pay">Payer</button>`)}
-      <button class="linkbtn" data-act="edit">Modifier</button>
-    </div>
+      <div class="evhero-name">${escapeHtml(next.name)}</div>
+      <div class="evhero-info">🕘 ${next.time||"Heure libre"}${next.place?` · 📍 ${escapeHtml(next.place)}`:""}</div>
+      <div class="evhero-bar">
+        <span class="evhero-cost">${paid?`Payé <b>${fmt(paid.amount)} FCFA</b>`:(next.cost?`Prévu <b>${fmt(next.cost)} FCFA</b>`:"Gratuit / coût libre")}</span>
+        ${paid?`<span class="evhero-ok">✓ Réglé</span>`:`<button class="evhero-pay" data-act="pay">Payer</button>`}
+      </div>
+    </div>`;
+    const card = $("#evFeatured .evhero");
+    card.addEventListener("click",()=>openEventDetail(next.id));
+    const pay = card.querySelector('[data-act="pay"]');
+    if(pay) pay.addEventListener("click",ev=>{ ev.stopPropagation(); openPayEvent(next.id); });
+  } else {
+    $("#evFeatured").innerHTML = `<div class="evhero empty-hero">
+      <div class="evhero-name">Aucun événement prévu</div>
+      <div class="evhero-info">Concert, mariage, conférence… planifie le prochain et prévois son budget.</div>
+      <div class="evhero-bar"><span class="evhero-cost">Commence maintenant</span><button class="evhero-pay" id="evHeroAdd">＋ Planifier</button></div>
+    </div>`;
+    $("#evHeroAdd").addEventListener("click",()=>openEventSheet());
+  }
+
+  renderCalendar(evs);
+
+  /* ---- grille filtrée (filtre + recherche + jour du calendrier) ---- */
+  let list = [...upcoming, ...past];
+  if(evFilter==="upcoming") list = upcoming.filter(e=>e.status!=="annule");
+  if(evFilter==="past")     list = past;
+  if(evFilter==="topay")    list = list.filter(e=>e.status!=="annule" && e.cost>0 && !eventPaidTx(e));
+  if(evDay) list = list.filter(e=>e.date===evDay);
+  const q = evQuery.trim().toLowerCase();
+  if(q) list = list.filter(e=>[e.name,e.place,e.note].some(x=>(x||"").toLowerCase().includes(q)));
+  if(evDay){
+    const [, m, d] = evDay.split("-").map(Number);
+    $("#evListTitle").textContent = `Le ${d} ${MONTHS[m-1]}`;
+    $("#evClearDay").textContent = "Tout voir";
+  } else {
+    $("#evListTitle").textContent = {all:"Mes événements", upcoming:"À venir", topay:"À payer", past:"Passés"}[evFilter];
+    $("#evClearDay").textContent = "";
+  }
+  $("#evGrid").innerHTML = list.length ? list.map(eventTile).join("")
+    : `<div class="empty" style="grid-column:1/-1;">${q||evDay||evFilter!=="all" ? "Aucun événement ne correspond." : "Aucun événement pour l'instant."}</div>`;
+  $$("#evGrid .evc").forEach(el=>el.addEventListener("click",()=>openEventDetail(el.dataset.id)));
+}
+function eventTile(e){
+  const st = evStatus(e);
+  const paid = eventPaidTx(e);
+  const sub = e.place || e.note || "";
+  return `<div class="evc${e.status==="annule"?" cancelled":""}" data-id="${e.id}">
+    <span class="evc-go">↗</span>
+    <div class="evc-t">${escapeHtml(e.name)}</div>
+    ${sub?`<div class="evc-s">${escapeHtml(sub)}</div>`:""}
+    <div class="evc-st ${st.cls}"><i></i>${st.txt}</div>
+    <div class="evc-l">📅 ${evDateLabel(e)}</div>
+    <div class="evc-l">🕘 ${e.time||"—"}</div>
+    <div class="evc-l">💰 ${paid?fmt(paid.amount):(e.cost?fmt(e.cost):"Gratuit")}</div>
   </div>`;
 }
-function openEventSheet(id){
+
+/* ---- calendrier du mois (lundi en premier) ---- */
+function renderCalendar(evs){
+  if(!calYM) calYM = nowYM();
+  const [y,m] = calYM.split("-").map(Number);
+  $("#calLabel").textContent = monthName(calYM);
+  const first = (new Date(y,m-1,1).getDay()+6)%7;   // 0 = lundi
+  const nb = daysInMonth(y,m);
+  const today = todayDate();
+  let h = "";
+  for(let i=0;i<first;i++) h += `<span></span>`;
+  for(let d=1; d<=nb; d++){
+    const ds = `${calYM}-${String(d).padStart(2,"0")}`;
+    const dayEvs = evs.filter(e=>e.date===ds && e.status!=="annule");
+    let cls = "";
+    if(dayEvs.length){
+      if(ds < today) cls = "past";
+      else if(dayEvs.every(e=>eventPaidTx(e))) cls = "paid";
+      else cls = "has";
+    }
+    if(ds===today) cls += " today";
+    if(ds===evDay) cls += " sel";
+    h += `<button class="cday ${cls}" data-d="${ds}">${String(d).padStart(2,"0")}${dayEvs.length>1?`<i>${dayEvs.length}</i>`:""}</button>`;
+  }
+  $("#calGrid").innerHTML = h;
+  $$("#calGrid .cday").forEach(b=>b.addEventListener("click",()=>{
+    const ds = b.dataset.d;
+    if((S.events||[]).some(e=>e.date===ds)){ evDay = evDay===ds ? "" : ds; renderEvents(); }
+    else openEventSheet(null, ds);   // jour libre : on planifie directement à cette date
+  }));
+}
+function shiftCal(delta){
+  let [y,m] = (calYM||nowYM()).split("-").map(Number);
+  m += delta; if(m<1){m=12;y--;} if(m>12){m=1;y++;}
+  calYM = y+"-"+String(m).padStart(2,"0");
+  renderEvents();
+}
+$("#calPrev").addEventListener("click",()=>shiftCal(-1));
+$("#calNext").addEventListener("click",()=>shiftCal(1));
+$$("#evFilter button").forEach(b=>b.addEventListener("click",()=>{
+  evFilter = b.dataset.f;
+  $$("#evFilter button").forEach(x=>x.classList.toggle("on", x===b));
+  renderEvents();
+}));
+$("#evSearch").addEventListener("input",e=>{ evQuery = e.target.value; renderEvents(); });
+$("#evClearDay").addEventListener("click",()=>{ evDay = ""; renderEvents(); });
+
+/* ---- fiche détaillée d'un événement ---- */
+function openEventDetail(id){
+  const e = S.events.find(x=>x.id===id); if(!e) return;
+  const paid = eventPaidTx(e);
+  const st = evStatus(e);
+  const [, m, d] = e.date.split("-").map(Number);
+  const line = (k,v)=>`<div class="statline"><span class="sl">${k}</span><span class="sv">${v}</span></div>`;
+  openSheet(`
+    <div class="evdetail-top">
+      <div class="evdate"><div class="evd">${d}</div><div class="evm">${MONTHS[m-1].slice(0,4)}.</div></div>
+      <div style="flex:1;min-width:0;">
+        <h3 style="margin:0 0 4px;">${escapeHtml(e.name)}</h3>
+        <div class="evc-st ${st.cls}"><i></i>${st.txt}</div>
+      </div>
+    </div>
+    <div class="evfacts">
+      <div class="evfact"><span>📅</span><b>${evDateLabel(e)}</b></div>
+      <div class="evfact"><span>🕘</span><b>${e.time||"Heure libre"}</b></div>
+      <div class="evfact"><span>💰</span><b>${paid?fmt(paid.amount):(e.cost?fmt(e.cost):"Gratuit")}</b></div>
+    </div>
+    ${line("Lieu", e.place?escapeHtml(e.place):"—")}
+    ${line("Coût prévu", e.cost?fmtF(e.cost):"—")}
+    ${line("Paiement", paid?`Payé le ${new Date(paid.date).toLocaleDateString("fr-FR")}`:"Pas encore payé")}
+    ${e.note?line("Note", escapeHtml(e.note)):""}
+    <div style="height:16px;"></div>
+    ${e.status==="annule" ? "" : (paid
+      ? `<button class="btn ghost" id="edUnpay">Annuler le paiement</button><div class="small" style="text-align:center;margin-top:6px;">La dépense de ${fmtF(paid.amount)} sera retirée de ton historique.</div>`
+      : `<button class="btn" id="edPay">Payer${e.cost?" "+fmtF(e.cost):""}</button>`)}
+    <div style="height:10px;"></div>
+    <button class="btn ghost" id="edEdit">Modifier l'événement</button>
+  `);
+  if($("#edPay")) $("#edPay").addEventListener("click",()=>openPayEvent(id));
+  if($("#edUnpay")) $("#edUnpay").addEventListener("click",()=>{
+    S.tx = S.tx.filter(t=>t.eventId!==id);
+    save();closeSheet();toast("Paiement annulé — dépense retirée");renderAll();
+  });
+  $("#edEdit").addEventListener("click",()=>openEventSheet(id));
+}
+function openEventSheet(id, presetDate){
   const e = id ? S.events.find(x=>x.id===id) : null;
   const isNew = !e;
   openSheet(`
@@ -836,7 +957,7 @@ function openEventSheet(id){
     <label class="fld">Nom de l'événement</label>
     <input id="evName" value="${e?escapeHtml(e.name):""}" placeholder="ex : Concert, mariage d'Awa, conférence…" />
     <div style="display:flex;gap:10px;">
-      <div style="flex:1;"><label class="fld">Date</label><input id="evDate" type="date" value="${e?e.date:todayDate()}" /></div>
+      <div style="flex:1;"><label class="fld">Date</label><input id="evDate" type="date" value="${e?e.date:(presetDate||todayDate())}" /></div>
       <div style="flex:1;"><label class="fld">Heure (optionnel)</label><input id="evTime" type="time" value="${e?e.time||"":""}" /></div>
     </div>
     <label class="fld">Lieu (optionnel)</label>

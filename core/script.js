@@ -1628,6 +1628,56 @@ function openAdjustSolde(){
 }
 $("#editSolde").addEventListener("click", openAdjustSolde);
 
+/* ----- Récupérer toutes les données (bouton 💾) -----
+   - JSON : sauvegarde complète de l'app (tout S, sauf le code de verrouillage)
+   - CSV  : tous les mouvements d'argent, lisible dans Excel (séparateur « ; ») */
+function downloadFile(name, content, type){
+  const blob = new Blob([content], {type});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+function exportJSON(){
+  const {pin, ...data} = S;   // le code de sécurité ne sort pas de l'app
+  downloadFile(`mon-budget-sauvegarde-${todayDate()}.json`, JSON.stringify(data, null, 2), "application/json");
+}
+function exportCSV(){
+  const cell = v => {
+    const s = String(v ?? "");
+    return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  };
+  const day = iso => new Date(iso).toLocaleDateString("fr-FR");
+  const rows = [];
+  S.income.forEach(i=>rows.push({date:i.date, type:"Revenu", cat:i.auto?"Salaire":"Revenu", amount:i.amount, note:i.note||""}));
+  S.tx.forEach(t=>rows.push({date:t.date, type:"Dépense", cat:catById(t.catId).name, amount:-t.amount, note:t.note||""}));
+  S.savings.forEach(s=>{
+    const g = s.goalId ? S.goals.find(x=>x.id===s.goalId) : null;
+    rows.push({date:s.date, type:"Épargne", cat:g ? "Objectif : "+g.name : "Réserve de sécurité", amount:-s.amount, note:""});
+  });
+  rows.sort((a,b)=>b.date.localeCompare(a.date));
+  const lines = [["Date","Type","Catégorie","Montant (FCFA)","Note"].join(";")]
+    .concat(rows.map(r=>[day(r.date), r.type, r.cat, r.amount, r.note].map(cell).join(";")));
+  // BOM UTF-8 : Excel affiche correctement les accents
+  downloadFile(`mon-budget-mouvements-${todayDate()}.csv`, "﻿"+lines.join("\r\n"), "text/csv;charset=utf-8");
+}
+$("#exportBtn").addEventListener("click",()=>{
+  const nMv = S.income.length + S.tx.length + S.savings.length;
+  openSheet(`
+    <h3>💾 Récupérer mes données</h3>
+    <div class="small">Télécharge une copie de tout ce que contient l'app : ${nMv} mouvement${nMv>1?"s":""}, ${S.debts.length} dette${S.debts.length>1?"s":""}/créance${S.debts.length>1?"s":""}, ${S.goals.length} objectif${S.goals.length>1?"s":""}, ${(S.events||[]).length} événement${(S.events||[]).length>1?"s":""}, catégories et réglages.</div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="expJson">Sauvegarde complète (.json)</button>
+    <div class="small" style="margin-top:6px;">Toutes les données de l'app, à garder en lieu sûr. Ton code de sécurité n'y figure pas.</div>
+    <div style="height:16px;"></div>
+    <button class="btn ghost" id="expCsv">Tous les mouvements (.csv / Excel)</button>
+    <div class="small" style="margin-top:6px;">Revenus, dépenses et épargne de tous les mois, à ouvrir dans Excel ou Google Sheets.</div>
+  `);
+  $("#expJson").addEventListener("click",()=>{ exportJSON(); toast("Sauvegarde téléchargée ✅"); });
+  $("#expCsv").addEventListener("click",()=>{ exportCSV(); toast("Fichier CSV téléchargé ✅"); });
+});
+
 /* ----- Salaire mensuel : espace dédié ----- */
 function applySalaire(newSal){
   S.salaireMensuel = newSal;

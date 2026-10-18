@@ -710,8 +710,89 @@ function renderSaving(){
     card.querySelector('[data-act="add"]').addEventListener("click",()=>openAddToGoal(id));
     card.querySelector('[data-act="edit"]').addEventListener("click",()=>openEditGoal(id));
   });
+
+  renderSavingHistory();
 }
 $("#addGoal").addEventListener("click",()=>openEditGoal(null));
+
+/* ----- Historique de l'épargne : uniquement les mouvements d'épargne -----
+   (réserve de sécurité + objectifs d'achat), séparé de l'historique revenus/dépenses. */
+let svFilter = "all";   // all | reserve | goals
+$$("#svSeg button").forEach(b=>b.addEventListener("click",()=>{
+  svFilter = b.dataset.f;
+  $$("#svSeg button").forEach(x=>x.classList.toggle("on", x===b));
+  renderSavingHistory();
+}));
+// libellé + icône d'un mouvement d'épargne
+function savingInfo(s){
+  if(!s.goalId) return {icon:"🛡️", label:"Réserve de sécurité"};
+  const g = S.goals.find(x=>x.id===s.goalId);
+  return {icon:"🎯", label: g ? g.name : (s.goalName ? s.goalName+" (supprimé)" : "Objectif supprimé")};
+}
+function renderSavingHistory(){
+  const list = S.savings
+    .filter(s=> svFilter==="all" || (svFilter==="reserve" ? !s.goalId : !!s.goalId))
+    .sort((a,b)=>b.date.localeCompare(a.date));
+  $("#svIn").textContent  = fmt(list.filter(s=>s.amount>0).reduce((a,s)=>a+s.amount,0));
+  $("#svOut").textContent = fmt(-list.filter(s=>s.amount<0).reduce((a,s)=>a+s.amount,0));
+  if(!list.length){
+    $("#savingHistory").innerHTML = `<div class="empty">Aucun mouvement d'épargne pour l'instant.</div>`;
+    return;
+  }
+  // groupé par mois, avec le net du mois
+  const byMonth = {};
+  list.forEach(s=>{ (byMonth[s.date.slice(0,7)] = byMonth[s.date.slice(0,7)] || []).push(s); });
+  $("#savingHistory").innerHTML = Object.keys(byMonth).sort().reverse().map(m=>{
+    const net = byMonth[m].reduce((a,s)=>a+s.amount,0);
+    return `<div class="dayblock">
+      <div class="dayhead"><span class="dayname">${monthName(m)}</span>
+        <span class="daytot" style="color:${net<0?"var(--red)":"var(--green)"}">${net<0?"−":"+"}${fmt(Math.abs(net))}</span></div>
+      ${byMonth[m].map(s=>{
+        const info = savingInfo(s), d = new Date(s.date), isIn = s.amount>0;
+        return `<div class="tx svrow" data-sid="${s.id}">
+          <div class="av" style="background:${isIn?"#0e9f6e22":"#ef444422"};">${info.icon}</div>
+          <div class="meta"><div class="t">${escapeHtml(info.label)}</div>
+            <div class="s">${isIn?"Mis de côté":"Retiré"} · ${String(d.getDate()).padStart(2,"0")} ${MONTHS[d.getMonth()].slice(0,4)}. · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</div></div>
+          <div class="val num" style="color:${isIn?"var(--green)":"var(--red)"}">${isIn?"+":"−"}${fmt(Math.abs(s.amount))}</div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  }).join("");
+  $$("#savingHistory .svrow").forEach(r=>r.addEventListener("click",()=>openSavingSheet(r.dataset.sid)));
+}
+// détail d'un mouvement d'épargne + annulation (remet l'argent comme avant)
+function openSavingSheet(id){
+  const s = S.savings.find(x=>x.id===id); if(!s) return;
+  const info = savingInfo(s), isIn = s.amount>0;
+  const g = s.goalId ? S.goals.find(x=>x.id===s.goalId) : null;
+  // ce que l'annulation ferait à la réserve / à l'objectif
+  let canUndo = true, why = "";
+  if(s.goalId && !g){ canUndo = false; why = "L'objectif a été supprimé : ce mouvement ne peut plus être annulé, seulement retiré de l'historique."; }
+  else if(!s.goalId && isIn && (S.reserve||0) < s.amount){ canUndo = false; why = `La réserve actuelle (${fmtF(S.reserve||0)}) est inférieure à ce montant : il a déjà été retiré en partie.`; }
+  else if(g && isIn && (g.saved||0) < s.amount){ canUndo = false; why = `L'objectif ne contient plus que ${fmtF(g.saved||0)}.`; }
+  openSheet(`
+    <h3>${info.icon} ${escapeHtml(info.label)}</h3>
+    <div class="small">${new Date(s.date).toLocaleString("fr-FR")}</div>
+    <div class="num" style="font-size:28px;font-weight:800;margin:10px 0;color:${isIn?"var(--green)":"var(--red)"}">${isIn?"+":"−"}${fmtF(Math.abs(s.amount))}</div>
+    <div class="small">${isIn?"Argent mis de côté (retiré de ton disponible).":"Argent retiré de l'épargne (revenu dans ton disponible)."}</div>
+    <div style="height:16px;"></div>
+    ${canUndo
+      ? `<button class="btn ghost" id="svUndo">Annuler ce mouvement</button>
+         <div class="small" style="margin-top:6px;text-align:center;">${isIn?`${fmtF(s.amount)} reviendront dans ton argent disponible.`:`${fmtF(-s.amount)} retourneront dans l'épargne.`}</div>`
+      : `<div class="small" style="text-align:center;">${why}</div>
+         <div style="text-align:center;margin-top:12px;"><button class="danger-link" id="svForget">Retirer de l'historique</button></div>`}
+  `);
+  if(canUndo) $("#svUndo").addEventListener("click",()=>{
+    if(s.goalId) g.saved = (g.saved||0) - s.amount;
+    else S.reserve = (S.reserve||0) - s.amount;
+    S.savings = S.savings.filter(x=>x.id!==id);
+    save();closeSheet();toast("Mouvement d'épargne annulé");renderAll();
+  });
+  else if($("#svForget")) $("#svForget").addEventListener("click",()=>{
+    S.savings = S.savings.filter(x=>x.id!==id);
+    save();closeSheet();toast("Retiré de l'historique");renderAll();
+  });
+}
 
 /* ----- Épargne de sécurité : réserve libre (ajouter / retirer) ----- */
 function openReserve(sense){
@@ -1769,7 +1850,7 @@ function openAddToGoal(id){
     const v=Number($("#gAdd").value.replace(/\D/g,""));
     if(!v){shake($("#gAdd"));return;}
     g.saved += v;
-    S.savings.push({id:uid(), goalId:g.id, amount:v, date:todayISO()});
+    S.savings.push({id:uid(), goalId:g.id, goalName:g.name, amount:v, date:todayISO()});
     save();closeSheet();
     toast(v>dispo ? "Épargné — solde global négatif ⚠️" : "Épargne ajoutée 🎉");
     renderAll();
@@ -1802,7 +1883,9 @@ function openEditGoal(id){
     else { g.name=name;g.target=target;g.saved=saved;g.due=due; }
     save();closeSheet();toast("Objectif enregistré");renderAll();
   });
-  if(!isNew){ $("#gDel").addEventListener("click",()=>{ S.goals=S.goals.filter(x=>x.id!==id);save();closeSheet();toast("Objectif supprimé");renderAll(); }); }
+  if(!isNew){ $("#gDel").addEventListener("click",()=>{
+    S.savings.forEach(s=>{ if(s.goalId===id) s.goalName = g.name; });  // l'historique garde le nom
+    S.goals=S.goals.filter(x=>x.id!==id);save();closeSheet();toast("Objectif supprimé");renderAll(); }); }
 }
 
 /* ============================================================

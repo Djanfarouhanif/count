@@ -145,6 +145,21 @@
       <div id="goalsList"></div>
       <button class="btn ghost" id="addGoal">+ Ajouter un objectif d'achat</button>
       <div style="height:18px;"></div>
+
+      <div class="card">
+        <div class="section-title">📜 Historique de l'épargne</div>
+        <div class="seg" id="svSeg">
+          <button data-f="all" class="on">Tout</button>
+          <button data-f="reserve">Réserve</button>
+          <button data-f="goals">Objectifs</button>
+        </div>
+        <div class="compare" style="margin:0 0 12px;">
+          <div class="cbox"><div class="k">Mis de côté</div><div class="v num" id="svIn" style="color:var(--green)">0</div></div>
+          <div class="cbox"><div class="k">Retiré</div><div class="v num" id="svOut" style="color:var(--red)">0</div></div>
+        </div>
+        <div id="savingHistory"></div>
+      </div>
+      <div style="height:18px;"></div>
       </div><!-- /#panel-saving -->
     </div>
   </section>

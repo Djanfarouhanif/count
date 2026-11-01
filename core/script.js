@@ -36,6 +36,7 @@ function freshState(){
     savings: [],       // mouvements d'épargne {id, target:"reserve"|goalId, amount(+/-), date(ISO)}
     reserve: 0,        // épargne de sécurité = réserve libre (sans cible)
     soldeAdjust: 0,    // correction manuelle du SEUL argent global (n'entre dans aucun historique/stat)
+    spentSavings: 0,   // épargne d'objectifs supprimés comme « argent utilisé » (reste hors du solde)
     recurrents: [],    // dépenses automatiques {id, amount, catId, note, day(1-28), since:"YYYY-MM", active, skips:[]}
     debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
                        //   réglée -> un vrai mouvement (tx ou income) portant debtId est créé
@@ -77,6 +78,7 @@ function normalize(s){
   }
   s.reserve = Number(s.reserve) || 0;
   s.soldeAdjust = Number(s.soldeAdjust) || 0;
+  s.spentSavings = Number(s.spentSavings) || 0;   // épargne d'objectifs supprimés car « argent utilisé »
   s.recurrents = s.recurrents || [];
   s.recurrents.forEach(r=>{
     r.amount = Number(r.amount) || 0;
@@ -223,7 +225,8 @@ function sumSaved(){ return (S.reserve||0) + S.goals.reduce((a,g)=>a+(g.saved||0
 // ligne de dette ne touche donc plus à l'argent global.
 // soldeAdjust = correction manuelle (« mon argent réel est X »). Elle ne touche QUE cette
 // ligne : ni l'historique, ni les dépenses du mois, ni les stats par catégorie.
-function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() + (S.soldeAdjust||0); }
+// spentSavings = argent d'objectifs atteints puis supprimés (« argent utilisé ») : il reste hors du solde.
+function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() - (S.spentSavings||0) + (S.soldeAdjust||0); }
 
 function uid(){ return Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
 function todayISO(){ return new Date().toISOString(); }
@@ -710,89 +713,8 @@ function renderSaving(){
     card.querySelector('[data-act="add"]').addEventListener("click",()=>openAddToGoal(id));
     card.querySelector('[data-act="edit"]').addEventListener("click",()=>openEditGoal(id));
   });
-
-  renderSavingHistory();
 }
 $("#addGoal").addEventListener("click",()=>openEditGoal(null));
-
-/* ----- Historique de l'épargne : uniquement les mouvements d'épargne -----
-   (réserve de sécurité + objectifs d'achat), séparé de l'historique revenus/dépenses. */
-let svFilter = "all";   // all | reserve | goals
-$$("#svSeg button").forEach(b=>b.addEventListener("click",()=>{
-  svFilter = b.dataset.f;
-  $$("#svSeg button").forEach(x=>x.classList.toggle("on", x===b));
-  renderSavingHistory();
-}));
-// libellé + icône d'un mouvement d'épargne
-function savingInfo(s){
-  if(!s.goalId) return {icon:"🛡️", label:"Réserve de sécurité"};
-  const g = S.goals.find(x=>x.id===s.goalId);
-  return {icon:"🎯", label: g ? g.name : (s.goalName ? s.goalName+" (supprimé)" : "Objectif supprimé")};
-}
-function renderSavingHistory(){
-  const list = S.savings
-    .filter(s=> svFilter==="all" || (svFilter==="reserve" ? !s.goalId : !!s.goalId))
-    .sort((a,b)=>b.date.localeCompare(a.date));
-  $("#svIn").textContent  = fmt(list.filter(s=>s.amount>0).reduce((a,s)=>a+s.amount,0));
-  $("#svOut").textContent = fmt(-list.filter(s=>s.amount<0).reduce((a,s)=>a+s.amount,0));
-  if(!list.length){
-    $("#savingHistory").innerHTML = `<div class="empty">Aucun mouvement d'épargne pour l'instant.</div>`;
-    return;
-  }
-  // groupé par mois, avec le net du mois
-  const byMonth = {};
-  list.forEach(s=>{ (byMonth[s.date.slice(0,7)] = byMonth[s.date.slice(0,7)] || []).push(s); });
-  $("#savingHistory").innerHTML = Object.keys(byMonth).sort().reverse().map(m=>{
-    const net = byMonth[m].reduce((a,s)=>a+s.amount,0);
-    return `<div class="dayblock">
-      <div class="dayhead"><span class="dayname">${monthName(m)}</span>
-        <span class="daytot" style="color:${net<0?"var(--red)":"var(--green)"}">${net<0?"−":"+"}${fmt(Math.abs(net))}</span></div>
-      ${byMonth[m].map(s=>{
-        const info = savingInfo(s), d = new Date(s.date), isIn = s.amount>0;
-        return `<div class="tx svrow" data-sid="${s.id}">
-          <div class="av" style="background:${isIn?"#0e9f6e22":"#ef444422"};">${info.icon}</div>
-          <div class="meta"><div class="t">${escapeHtml(info.label)}</div>
-            <div class="s">${isIn?"Mis de côté":"Retiré"} · ${String(d.getDate()).padStart(2,"0")} ${MONTHS[d.getMonth()].slice(0,4)}. · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}</div></div>
-          <div class="val num" style="color:${isIn?"var(--green)":"var(--red)"}">${isIn?"+":"−"}${fmt(Math.abs(s.amount))}</div>
-        </div>`;
-      }).join("")}
-    </div>`;
-  }).join("");
-  $$("#savingHistory .svrow").forEach(r=>r.addEventListener("click",()=>openSavingSheet(r.dataset.sid)));
-}
-// détail d'un mouvement d'épargne + annulation (remet l'argent comme avant)
-function openSavingSheet(id){
-  const s = S.savings.find(x=>x.id===id); if(!s) return;
-  const info = savingInfo(s), isIn = s.amount>0;
-  const g = s.goalId ? S.goals.find(x=>x.id===s.goalId) : null;
-  // ce que l'annulation ferait à la réserve / à l'objectif
-  let canUndo = true, why = "";
-  if(s.goalId && !g){ canUndo = false; why = "L'objectif a été supprimé : ce mouvement ne peut plus être annulé, seulement retiré de l'historique."; }
-  else if(!s.goalId && isIn && (S.reserve||0) < s.amount){ canUndo = false; why = `La réserve actuelle (${fmtF(S.reserve||0)}) est inférieure à ce montant : il a déjà été retiré en partie.`; }
-  else if(g && isIn && (g.saved||0) < s.amount){ canUndo = false; why = `L'objectif ne contient plus que ${fmtF(g.saved||0)}.`; }
-  openSheet(`
-    <h3>${info.icon} ${escapeHtml(info.label)}</h3>
-    <div class="small">${new Date(s.date).toLocaleString("fr-FR")}</div>
-    <div class="num" style="font-size:28px;font-weight:800;margin:10px 0;color:${isIn?"var(--green)":"var(--red)"}">${isIn?"+":"−"}${fmtF(Math.abs(s.amount))}</div>
-    <div class="small">${isIn?"Argent mis de côté (retiré de ton disponible).":"Argent retiré de l'épargne (revenu dans ton disponible)."}</div>
-    <div style="height:16px;"></div>
-    ${canUndo
-      ? `<button class="btn ghost" id="svUndo">Annuler ce mouvement</button>
-         <div class="small" style="margin-top:6px;text-align:center;">${isIn?`${fmtF(s.amount)} reviendront dans ton argent disponible.`:`${fmtF(-s.amount)} retourneront dans l'épargne.`}</div>`
-      : `<div class="small" style="text-align:center;">${why}</div>
-         <div style="text-align:center;margin-top:12px;"><button class="danger-link" id="svForget">Retirer de l'historique</button></div>`}
-  `);
-  if(canUndo) $("#svUndo").addEventListener("click",()=>{
-    if(s.goalId) g.saved = (g.saved||0) - s.amount;
-    else S.reserve = (S.reserve||0) - s.amount;
-    S.savings = S.savings.filter(x=>x.id!==id);
-    save();closeSheet();toast("Mouvement d'épargne annulé");renderAll();
-  });
-  else if($("#svForget")) $("#svForget").addEventListener("click",()=>{
-    S.savings = S.savings.filter(x=>x.id!==id);
-    save();closeSheet();toast("Retiré de l'historique");renderAll();
-  });
-}
 
 /* ----- Épargne de sécurité : réserve libre (ajouter / retirer) ----- */
 function openReserve(sense){
@@ -1735,7 +1657,7 @@ function exportCSV(){
   S.tx.forEach(t=>rows.push({date:t.date, type:"Dépense", cat:catById(t.catId).name, amount:-t.amount, note:t.note||""}));
   S.savings.forEach(s=>{
     const g = s.goalId ? S.goals.find(x=>x.id===s.goalId) : null;
-    rows.push({date:s.date, type:"Épargne", cat:g ? "Objectif : "+g.name : "Réserve de sécurité", amount:-s.amount, note:""});
+    rows.push({date:s.date, type:"Épargne", cat:s.goalId ? "Objectif : "+(g ? g.name : (s.goalName||"supprimé")) : "Réserve de sécurité", amount:-s.amount, note:""});
   });
   rows.sort((a,b)=>b.date.localeCompare(a.date));
   const lines = [["Date","Type","Catégorie","Montant (FCFA)","Note"].join(";")]
@@ -1883,9 +1805,43 @@ function openEditGoal(id){
     else { g.name=name;g.target=target;g.saved=saved;g.due=due; }
     save();closeSheet();toast("Objectif enregistré");renderAll();
   });
-  if(!isNew){ $("#gDel").addEventListener("click",()=>{
-    S.savings.forEach(s=>{ if(s.goalId===id) s.goalName = g.name; });  // l'historique garde le nom
-    S.goals=S.goals.filter(x=>x.id!==id);save();closeSheet();toast("Objectif supprimé");renderAll(); }); }
+  if(!isNew) $("#gDel").addEventListener("click",()=>confirmDeleteGoal(g));
+}
+/* Suppression d'un objectif :
+   - argent utilisé (objectif atteint, achat fait) -> l'argent épargné est considéré comme
+     dépensé : il NE revient PAS dans l'argent global, et aucune dépense n'est créée
+     (rien dans l'historique ni les stats) — il est cumulé dans S.spentSavings ;
+   - objectif abandonné -> l'argent épargné revient dans l'argent global. */
+function confirmDeleteGoal(g){
+  const removeGoal = ()=>{
+    S.savings.forEach(s=>{ if(s.goalId===g.id) s.goalName = g.name; });  // garde le nom pour l'export
+    S.goals = S.goals.filter(x=>x.id!==g.id);
+  };
+  if(!(g.saved>0)){
+    removeGoal(); save();closeSheet();toast("Objectif supprimé");renderAll();
+    return;
+  }
+  const reached = g.target>0 && g.saved>=g.target;
+  const useBtn  = `<button class="btn${reached?"":" ghost"}" id="gdUsed">Argent utilisé — ne pas le remettre</button>
+    <div class="small" style="margin-top:6px;">Achat effectué : les ${fmtF(g.saved)} sont considérés comme dépensés. Ton argent global ne bouge pas.</div>`;
+  const backBtn = `<button class="btn${reached?" ghost":""}" id="gdBack">Remettre l'argent dans le disponible</button>
+    <div class="small" style="margin-top:6px;">Objectif abandonné : ton argent global augmentera de ${fmtF(g.saved)}.</div>`;
+  openSheet(`
+    <h3>🗑 Supprimer « ${escapeHtml(g.name)} »</h3>
+    <div class="small">${reached?"🎉 Objectif atteint : ":""}${fmtF(g.saved)} épargnés sur ${fmtF(g.target)}. Que devient cet argent ?</div>
+    <div style="height:14px;"></div>
+    ${reached ? useBtn+`<div style="height:16px;"></div>`+backBtn : backBtn+`<div style="height:16px;"></div>`+useBtn}
+    <div style="height:14px;"></div>
+    <div style="text-align:center;"><button class="linkbtn" id="gdCancel">Annuler</button></div>
+  `);
+  $("#gdUsed").addEventListener("click",()=>{
+    S.spentSavings = (S.spentSavings||0) + g.saved;
+    removeGoal(); save();closeSheet();toast("Objectif supprimé — argent utilisé");renderAll();
+  });
+  $("#gdBack").addEventListener("click",()=>{
+    removeGoal(); save();closeSheet();toast("Objectif supprimé — argent remis dans le disponible");renderAll();
+  });
+  $("#gdCancel").addEventListener("click",closeSheet);
 }
 
 /* ============================================================

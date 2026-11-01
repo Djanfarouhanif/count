@@ -1771,11 +1771,14 @@ function openAddToGoal(id){
   $("#gAddSave").addEventListener("click",()=>{
     const v=Number($("#gAdd").value.replace(/\D/g,""));
     if(!v){shake($("#gAdd"));return;}
+    const wasReached = g.target>0 && g.saved>=g.target;
     g.saved += v;
     S.savings.push({id:uid(), goalId:g.id, goalName:g.name, amount:v, date:todayISO()});
     save();closeSheet();
     toast(v>dispo ? "Épargné — solde global négatif ⚠️" : "Épargne ajoutée 🎉");
     renderAll();
+    // objectif tout juste atteint : demander si l'achat va dans les dépenses
+    if(!wasReached && g.target>0 && g.saved>=g.target) setTimeout(()=>confirmDeleteGoal(g,true),350);
   });
 }
 function openEditGoal(id){
@@ -1807,12 +1810,14 @@ function openEditGoal(id){
   });
   if(!isNew) $("#gDel").addEventListener("click",()=>confirmDeleteGoal(g));
 }
-/* Suppression d'un objectif :
-   - argent utilisé (objectif atteint, achat fait) -> l'argent épargné est considéré comme
-     dépensé : il NE revient PAS dans l'argent global, et aucune dépense n'est créée
-     (rien dans l'historique ni les stats) — il est cumulé dans S.spentSavings ;
-   - objectif abandonné -> l'argent épargné revient dans l'argent global. */
-function confirmDeleteGoal(g){
+/* Que devient l'argent d'un objectif (à la suppression, ou dès qu'il est atteint) :
+   - achat fait + ajouté aux dépenses -> une dépense est créée (historique + stats) et
+     l'objectif disparaît : l'argent global ne bouge pas (l'épargne devient la dépense) ;
+   - achat fait sans l'ajouter -> l'argent est considéré comme dépensé mais rien n'apparaît
+     dans l'historique ni les stats — il est cumulé dans S.spentSavings ;
+   - objectif abandonné -> l'argent épargné revient dans l'argent global.
+   justReached = l'objectif vient d'être atteint : on propose aussi de le garder pour plus tard. */
+function confirmDeleteGoal(g, justReached){
   const removeGoal = ()=>{
     S.savings.forEach(s=>{ if(s.goalId===g.id) s.goalName = g.name; });  // garde le nom pour l'export
     S.goals = S.goals.filter(x=>x.id!==g.id);
@@ -1822,23 +1827,35 @@ function confirmDeleteGoal(g){
     return;
   }
   const reached = g.target>0 && g.saved>=g.target;
-  const useBtn  = `<button class="btn${reached?"":" ghost"}" id="gdUsed">Argent utilisé — ne pas le remettre</button>
-    <div class="small" style="margin-top:6px;">Achat effectué : les ${fmtF(g.saved)} sont considérés comme dépensés. Ton argent global ne bouge pas.</div>`;
+  const defCat = S.cats.some(c=>c.id==="loisirs") ? "loisirs" : S.cats[0].id;
+  const expBlock = `<button class="btn${reached?"":" ghost"}" id="gdExp">🧾 Achat fait — ajouter aux dépenses</button>
+    <div class="small" style="margin-top:6px;">Une dépense de ${fmtF(g.saved)} apparaît dans l'historique et les stats. Ton argent global ne bouge pas.</div>
+    <label class="fld">Catégorie de la dépense</label>
+    <select id="gdCat">${S.cats.map(c=>`<option value="${c.id}" ${c.id===defCat?"selected":""}>${c.icon} ${c.name}</option>`).join("")}</select>`;
+  const useBtn  = `<button class="btn ghost" id="gdUsed">Achat fait — ne pas l'ajouter aux dépenses</button>
+    <div class="small" style="margin-top:6px;">L'argent est considéré comme dépensé, sans rien dans l'historique ni les stats. Ton argent global ne bouge pas.</div>`;
   const backBtn = `<button class="btn${reached?" ghost":""}" id="gdBack">Remettre l'argent dans le disponible</button>
     <div class="small" style="margin-top:6px;">Objectif abandonné : ton argent global augmentera de ${fmtF(g.saved)}.</div>`;
+  const gap = `<div style="height:16px;"></div>`;
+  const body = justReached ? expBlock+gap+useBtn
+             : reached ? expBlock+gap+useBtn+gap+backBtn : backBtn+gap+expBlock+gap+useBtn;
   openSheet(`
-    <h3>🗑 Supprimer « ${escapeHtml(g.name)} »</h3>
-    <div class="small">${reached?"🎉 Objectif atteint : ":""}${fmtF(g.saved)} épargnés sur ${fmtF(g.target)}. Que devient cet argent ?</div>
+    <h3>${justReached?`🎉 Objectif « ${escapeHtml(g.name)} » atteint !`:`🗑 Supprimer « ${escapeHtml(g.name)} »`}</h3>
+    <div class="small">${!justReached&&reached?"🎉 Objectif atteint : ":""}${fmtF(g.saved)} épargnés sur ${fmtF(g.target)}. ${justReached?"Tu as fait l'achat ? Choisis si tu veux l'ajouter à tes dépenses.":"Que devient cet argent ?"}</div>
     <div style="height:14px;"></div>
-    ${reached ? useBtn+`<div style="height:16px;"></div>`+backBtn : backBtn+`<div style="height:16px;"></div>`+useBtn}
+    ${body}
     <div style="height:14px;"></div>
-    <div style="text-align:center;"><button class="linkbtn" id="gdCancel">Annuler</button></div>
+    <div style="text-align:center;"><button class="linkbtn" id="gdCancel">${justReached?"Plus tard — garder l'objectif":"Annuler"}</button></div>
   `);
+  $("#gdExp").addEventListener("click",()=>{
+    S.tx.push({id:uid(), amount:g.saved, catId:$("#gdCat").value, note:g.name, date:todayISO()});
+    removeGoal(); save();closeSheet();toast("Objectif terminé — dépense enregistrée");renderAll();
+  });
   $("#gdUsed").addEventListener("click",()=>{
     S.spentSavings = (S.spentSavings||0) + g.saved;
     removeGoal(); save();closeSheet();toast("Objectif supprimé — argent utilisé");renderAll();
   });
-  $("#gdBack").addEventListener("click",()=>{
+  if(!justReached) $("#gdBack").addEventListener("click",()=>{
     removeGoal(); save();closeSheet();toast("Objectif supprimé — argent remis dans le disponible");renderAll();
   });
   $("#gdCancel").addEventListener("click",closeSheet);

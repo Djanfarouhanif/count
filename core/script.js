@@ -37,9 +37,12 @@ function freshState(){
     reserve: 0,        // épargne de sécurité = réserve libre (sans cible)
     soldeAdjust: 0,    // correction manuelle du SEUL argent global (n'entre dans aucun historique/stat)
     spentSavings: 0,   // épargne d'objectifs supprimés comme « argent utilisé » (reste hors du solde)
+    lostLoans: 0,      // prêts jamais remboursés (supprimés comme « argent perdu ») : restent hors du solde
     recurrents: [],    // dépenses automatiques {id, amount, catId, note, day(1-28), since:"YYYY-MM", active, skips:[]}
     debts: [],         // dettes/créances {id, type:"dette"|"creance", person, amount, note, date, settled, settledDate}
                        //   réglée -> un vrai mouvement (tx ou income) portant debtId est créé
+                       //   créance lent:true = argent prêté : sort du disponible tant qu'il n'est pas
+                       //   remboursé, sans être une dépense ; le remboursement n'est pas un revenu
     goals: [],         // objectifs d'achat {id, name, target, saved, due}
     events: [],        // événements planifiés {id, name, date:"YYYY-MM-DD", time, place, cost, note, status:"prevu"|"annule"}
                        //   payé -> une dépense portant eventId est créée
@@ -79,6 +82,7 @@ function normalize(s){
   s.reserve = Number(s.reserve) || 0;
   s.soldeAdjust = Number(s.soldeAdjust) || 0;
   s.spentSavings = Number(s.spentSavings) || 0;   // épargne d'objectifs supprimés car « argent utilisé »
+  s.lostLoans = Number(s.lostLoans) || 0;         // prêts supprimés comme « argent perdu »
   s.recurrents = s.recurrents || [];
   s.recurrents.forEach(r=>{
     r.amount = Number(r.amount) || 0;
@@ -92,7 +96,7 @@ function normalize(s){
   // (dette payée) ou un revenu (créance reçue) relié par debtId ; la ligne de dette ne
   // sert plus qu'au suivi. Le solde reste identique avant/après migration.
   s.debts.forEach(d=>{
-    if(!d.settled) return;
+    if(!d.settled || d.lent) return;
     const linked = d.type==="dette" ? s.tx.some(t=>t.debtId===d.id)
                                     : s.income.some(i=>i.debtId===d.id);
     if(linked) return;
@@ -226,7 +230,9 @@ function sumSaved(){ return (S.reserve||0) + S.goals.reduce((a,g)=>a+(g.saved||0
 // soldeAdjust = correction manuelle (« mon argent réel est X »). Elle ne touche QUE cette
 // ligne : ni l'historique, ni les dépenses du mois, ni les stats par catégorie.
 // spentSavings = argent d'objectifs atteints puis supprimés (« argent utilisé ») : il reste hors du solde.
-function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() - (S.spentSavings||0) + (S.soldeAdjust||0); }
+// sumLent = argent prêté pas encore remboursé ; lostLoans = prêts perdus (aucun des deux n'est une dépense).
+function sumLent(){ return S.debts.filter(d=>d.type==="creance" && d.lent && !d.settled).reduce((a,d)=>a+d.amount,0); }
+function soldeGlobal(){ return sumIncome() - sumExpenses() - sumSaved() - (S.spentSavings||0) - sumLent() - (S.lostLoans||0) + (S.soldeAdjust||0); }
 
 function uid(){ return Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
 function todayISO(){ return new Date().toISOString(); }
@@ -1041,6 +1047,7 @@ $("#addEvent").addEventListener("click",()=>openEventSheet());
 function settleDebt(d){
   d.settled = true;
   d.settledDate = todayISO();
+  if(d.lent) return;  // prêt remboursé : l'argent revient dans le disponible, sans revenu
   if(d.type==="dette"){
     if(!S.cats.some(c=>c.id===DEBT_CAT_ID)) S.cats.push({...DEBT_CAT});
     S.tx.push({id:uid(), amount:d.amount, catId:DEBT_CAT_ID, note:debtLabel(d), date:d.settledDate, debtId:d.id});
@@ -1080,6 +1087,7 @@ function debtRow(d){
       <span class="debt-who">${escapeHtml(d.person||"—")}</span>
       <span class="debt-amt">${fmt(d.amount)} FCFA</span>
     </div>
+    ${d.lent?`<div class="small">💸 Prêt — ${d.settled?"remboursé, l'argent est revenu dans ton disponible":"retiré de ton argent disponible"}</div>`:""}
     ${d.note?`<div class="small">${escapeHtml(d.note)}</div>`:""}
     <div class="debt-actions">
       ${d.settled
@@ -1096,16 +1104,20 @@ function bindDebtRows(){
     const btn=(act)=>row.querySelector(`[data-act="${act}"]`);
     if(btn("settle")) btn("settle").addEventListener("click",()=>{
       settleDebt(d); save();
-      toast(d.type==="dette"?"Dette payée — dépense enregistrée":"Créance reçue — revenu enregistré");
+      toast(d.lent?"Prêt remboursé — argent revenu dans le disponible"
+           :d.type==="dette"?"Dette payée — dépense enregistrée":"Créance reçue — revenu enregistré");
       renderAll();
     });
     if(btn("undo")) btn("undo").addEventListener("click",()=>{
       unsettleDebt(d); save();
-      toast(d.type==="dette"?"Règlement annulé — dépense retirée":"Règlement annulé — revenu retiré");
+      toast(d.lent?"Remboursement annulé — prêt de nouveau en cours"
+           :d.type==="dette"?"Règlement annulé — dépense retirée":"Règlement annulé — revenu retiré");
       renderAll();
     });
     if(btn("del")) btn("del").addEventListener("click",()=>{
-      if(d.settled) confirmDeleteSettled(d); else { S.debts=S.debts.filter(x=>x.id!==id); save(); toast("Supprimé"); renderAll(); }
+      if(d.lent && !d.settled) confirmDeleteLoan(d);
+      else if(d.settled && !d.lent) confirmDeleteSettled(d);
+      else { S.debts=S.debts.filter(x=>x.id!==id); save(); toast("Supprimé"); renderAll(); }
     });
   });
 }
@@ -1141,13 +1153,43 @@ function confirmDeleteSettled(d){
   });
   $("#delCancel").addEventListener("click",closeSheet);
 }
+// Supprimer un prêt pas encore remboursé : l'argent revient-il, ou est-il perdu ?
+function confirmDeleteLoan(d){
+  openSheet(`
+    <h3>🗑 Supprimer ce prêt</h3>
+    <div class="small">${escapeHtml(d.person||"—")} · <b>${fmt(d.amount)} FCFA</b> — pas encore remboursé.</div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="lnLost">Il ne remboursera pas — argent perdu</button>
+    <div class="small" style="margin-top:6px;">Ton argent global ne bouge pas, et aucune dépense n'est créée.</div>
+    <div style="height:16px;"></div>
+    <button class="btn ghost" id="lnBack">Prêt annulé — remettre l'argent</button>
+    <div class="small" style="margin-top:6px;">Comme si le prêt n'avait jamais eu lieu : ton argent global remontera de ${fmt(d.amount)} FCFA.</div>
+    <div style="height:14px;"></div>
+    <div style="text-align:center;"><button class="linkbtn" id="lnCancel">Annuler</button></div>
+  `);
+  $("#lnLost").addEventListener("click",()=>{
+    S.lostLoans = (S.lostLoans||0) + d.amount;
+    S.debts=S.debts.filter(x=>x.id!==d.id);
+    save();closeSheet();toast("Prêt supprimé — argent perdu");renderAll();
+  });
+  $("#lnBack").addEventListener("click",()=>{
+    S.debts=S.debts.filter(x=>x.id!==d.id);
+    save();closeSheet();toast("Prêt supprimé — argent remis dans le disponible");renderAll();
+  });
+  $("#lnCancel").addEventListener("click",closeSheet);
+}
 function openAddDebt(type){
   const isDette = type==="dette";
   openSheet(`
     <h3>${isDette?"＋ Nouvelle dette (je dois)":"＋ Nouvelle créance (on me doit)"}</h3>
-    <div class="small">${isDette
-      ? "Quand tu la marqueras payée, une dépense du même montant sera enregistrée dans ton historique (l'argent sort du solde)."
-      : "Quand tu la marqueras reçue, un revenu du même montant sera enregistré dans ton historique (l'argent entre dans le solde)."}</div>
+    ${isDette
+      ? `<div class="small">Quand tu la marqueras payée, une dépense du même montant sera enregistrée dans ton historique (l'argent sort du solde).</div>`
+      : `<label class="fld">Type</label>
+    <select id="dKind">
+      <option value="lent" selected>💸 Je lui prête de l'argent</option>
+      <option value="owed">🧾 Il me doit pour autre chose</option>
+    </select>
+    <div class="small" id="dKindInfo" style="margin-top:6px;"></div>`}
     <label class="fld">${isDette?"À qui dois-tu ?":"Qui te doit ?"}</label>
     <input id="dPerson" placeholder="ex : Awa, boutique, banque…" />
     <label class="fld">Montant (FCFA)</label>
@@ -1158,12 +1200,17 @@ function openAddDebt(type){
     <button class="btn" id="dSave">Ajouter</button>
   `);
   $("#dAmt").addEventListener("input",e=>{const x=e.target.value.replace(/\D/g,"");e.target.value=x?fmt(x):"";});
+  const kindInfo = ()=>{ $("#dKindInfo").textContent = $("#dKind").value==="lent"
+    ? "Le montant est retiré tout de suite de ton argent disponible, sans compter comme une dépense. Quand il te rembourse, l'argent revient (sans compter comme un revenu)."
+    : "Rien ne sort maintenant. Quand tu la marqueras reçue, un revenu du même montant sera enregistré dans ton historique."; };
+  if(!isDette){ $("#dKind").addEventListener("change",kindInfo); kindInfo(); }
   setTimeout(()=>$("#dPerson").focus(),120);
   $("#dSave").addEventListener("click",()=>{
     const amt=Number($("#dAmt").value.replace(/\D/g,""));
     if(!amt){shake($("#dAmt"));return;}
-    S.debts.push({id:uid(), type, person:$("#dPerson").value.trim()||"—", amount:amt, note:$("#dNote").value.trim(), date:todayISO(), settled:false, settledDate:""});
-    save();closeSheet();toast(isDette?"Dette ajoutée":"Créance ajoutée");renderAll();
+    const lent = !isDette && $("#dKind").value==="lent";
+    S.debts.push({id:uid(), type, person:$("#dPerson").value.trim()||"—", amount:amt, note:$("#dNote").value.trim(), date:todayISO(), settled:false, settledDate:"", ...(lent?{lent:true}:{})});
+    save();closeSheet();toast(isDette?"Dette ajoutée":lent?"Prêt ajouté — retiré du disponible":"Créance ajoutée");renderAll();
   });
 }
 $("#debtsCard").addEventListener("click",()=>show("debts"));

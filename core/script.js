@@ -1044,7 +1044,7 @@ $("#addEvent").addEventListener("click",()=> eventsView==="perso" ? openPlanShee
    un objectif personnel + la liste des actions à faire pour l'atteindre.
    Atteint = toutes ses actions cochées. Aucun lien avec l'argent.
 ============================================================ */
-let eventsView = "events";
+let eventsView = "perso";   // vue affichée par défaut
 function setEventsView(v){
   eventsView = v;
   $$("#eventsSeg button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));

@@ -39,7 +39,8 @@ const SEED = {
   reserve: 0,
   debts: [],
   goals: [],
-  events: []
+  events: [],
+  plans: []
 };
 
 function ensureData() {

@@ -152,10 +152,26 @@
   <!-- ================= ÉVÉNEMENTS ================= -->
   <section class="screen" id="screen-events">
     <header class="top" style="display:flex;justify-content:space-between;align-items:flex-start;">
-      <div><h1>Événements</h1><div class="sub" id="eventsSub">Planifie ceux auxquels tu veux participer</div></div>
+      <div><h1 id="eventsTitle">Événements</h1><div class="sub" id="eventsSub">Planifie ceux auxquels tu veux participer</div></div>
       <button id="addEvent" class="iconbtn evadd" aria-label="Planifier un événement" title="Planifier un événement">＋</button>
     </header>
     <div style="padding:0 16px;">
+      <div class="seg" id="eventsSeg">
+        <button data-v="perso">🎯 Perso</button>
+        <button data-v="events" class="on">🗓️ Événements</button>
+      </div>
+
+      <div id="panel-perso" style="display:none;">
+        <div class="evstats">
+          <div class="evstat"><div class="k">En cours</div><div class="v num" id="plCount">0</div></div>
+          <div class="evstat"><div class="k">Actions faites</div><div class="v num" id="plActs">0</div></div>
+          <div class="evstat"><div class="k">Atteints</div><div class="v num" id="plDone">0</div></div>
+        </div>
+        <div id="plansList"></div>
+        <div style="height:18px;"></div>
+      </div>
+
+      <div id="panel-events">
       <div class="evsearch">
         <span class="evsearch-ico">🔍</span>
         <input id="evSearch" type="search" placeholder="Rechercher un événement…" autocomplete="off" />
@@ -196,6 +212,7 @@
       <div class="section-title"><span id="evListTitle">Mes événements</span><span class="link" id="evClearDay"></span></div>
       <div class="evgrid" id="evGrid"></div>
       <div style="height:18px;"></div>
+      </div>
     </div>
   </section>
 

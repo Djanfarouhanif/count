@@ -46,6 +46,7 @@ function freshState(){
     goals: [],         // objectifs d'achat {id, name, target, saved, due}
     events: [],        // événements planifiés {id, name, date:"YYYY-MM-DD", time, place, cost, note, status:"prevu"|"annule"}
                        //   payé -> une dépense portant eventId est créée
+    plans: [],         // objectifs perso {id, title, why, due:"YYYY-MM-DD"|"", actions:[{id,text,done}], createdAt, doneAt}
   };
 }
 
@@ -69,6 +70,8 @@ function normalize(s){
   s.debts   = s.debts || [];
   s.goals   = s.goals || [];
   s.events  = s.events || [];
+  s.plans   = s.plans  || [];
+  s.plans.forEach(p=>{ p.actions = p.actions || []; });
   s.events.forEach(e=>{ e.cost = Number(e.cost) || 0; e.status = e.status==="annule" ? "annule" : "prevu"; });
   s.tx      = s.tx || [];
   // migration : sépare l'épargne de sécurité (réserve) des objectifs d'achat.
@@ -801,7 +804,7 @@ function renderEvents(){
   $("#evCount").textContent  = planned.length;
   $("#evBudget").textContent = fmt(planned.filter(e=>!eventPaidTx(e)).reduce((a,e)=>a+e.cost,0));
   $("#evSpent").textContent  = fmt(txOfMonth(nowYM()).filter(t=>t.eventId).reduce((a,t)=>a+t.amount,0));
-  $("#eventsSub").textContent = planned.length
+  if(eventsView==="events") $("#eventsSub").textContent = planned.length
     ? `${planned.length} événement${planned.length>1?"s":""} à venir`
     : "Planifie ceux auxquels tu veux participer";
 
@@ -1034,7 +1037,142 @@ function openPayEvent(id){
     save();closeSheet();toast("Événement payé — dépense enregistrée");renderAll();
   });
 }
-$("#addEvent").addEventListener("click",()=>openEventSheet());
+$("#addEvent").addEventListener("click",()=> eventsView==="perso" ? openPlanSheet() : openEventSheet());
+
+/* ============================================================
+   OBJECTIFS PERSO (onglet Événements, vue « Perso ») :
+   un objectif personnel + la liste des actions à faire pour l'atteindre.
+   Atteint = toutes ses actions cochées. Aucun lien avec l'argent.
+============================================================ */
+let eventsView = "events";
+function setEventsView(v){
+  eventsView = v;
+  $$("#eventsSeg button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
+  $("#panel-perso").style.display  = v==="perso"  ? "" : "none";
+  $("#panel-events").style.display = v==="events" ? "" : "none";
+  $("#eventsTitle").textContent = v==="perso" ? "Mes objectifs" : "Événements";
+  const lbl = v==="perso" ? "Nouvel objectif" : "Planifier un événement";
+  $("#addEvent").setAttribute("aria-label", lbl); $("#addEvent").title = lbl;
+  const c=$("#content"); if(c) c.scrollTop=0;
+  renderEvents(); renderPlans();
+}
+$$("#eventsSeg button").forEach(b=>b.addEventListener("click",()=>setEventsView(b.dataset.v)));
+
+const planDone = p => p.actions.length>0 && p.actions.every(a=>a.done);
+function renderPlans(){
+  const plans  = S.plans || [];
+  const active = plans.filter(p=>!planDone(p)).sort((a,b)=>(a.due||"9999").localeCompare(b.due||"9999"));
+  const done   = plans.filter(planDone).sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||""));
+  const nActs  = plans.reduce((a,p)=>a+p.actions.length,0);
+  const nOk    = plans.reduce((a,p)=>a+p.actions.filter(x=>x.done).length,0);
+  $("#plCount").textContent = active.length;
+  $("#plActs").textContent  = `${nOk}/${nActs}`;
+  $("#plDone").textContent  = done.length;
+  if(eventsView==="perso") $("#eventsSub").textContent = active.length
+    ? `${active.length} objectif${active.length>1?"s":""} en cours`
+    : "Définis tes objectifs et les actions pour les atteindre";
+  $("#plansList").innerHTML = plans.length
+    ? (active.length ? active.map(planCard).join("") : `<div class="empty">Tous tes objectifs sont atteints 🎉</div>`)
+      + (done.length ? `<div class="section-title">✅ Objectifs atteints</div>` + done.map(planCard).join("") : "")
+    : `<div class="empty">Aucun objectif pour l'instant.<br>Touche ＋ pour en créer un et lister les actions à faire.</div>`;
+}
+function planCard(p){
+  const n = p.actions.length, k = p.actions.filter(a=>a.done).length;
+  const pct = n ? Math.round(k*100/n) : 0, ok = planDone(p);
+  let due = "";
+  if(p.due && !ok){
+    const dd = daysUntil(p.due), [y,m,d] = p.due.split("-").map(Number);
+    const when = `${d} ${MONTHS[m-1].slice(0,4)}. ${y}`;
+    due = dd<0 ? `<span class="pl-due late">⏰ En retard · prévu le ${when}</span>`
+                : `<span class="pl-due${dd<=7?" soon":""}">⏳ ${when} · ${countdownLabel(dd)}</span>`;
+  }
+  return `<div class="card plan${ok?" ok":""}" data-id="${p.id}">
+    <div class="pl-head">
+      <div>
+        <div class="pl-title">${ok?"🏆 ":""}${escapeHtml(p.title)}</div>
+        ${p.why?`<div class="small pl-why">${escapeHtml(p.why)}</div>`:""}
+        ${due}
+      </div>
+      <button class="iconbtn pl-edit" data-act="edit" aria-label="Modifier l'objectif">✏️</button>
+    </div>
+    <div class="prog"><div class="head"><span class="name">${n?`${k}/${n} action${n>1?"s":""}`:"Aucune action"}</span><span class="vals">${pct}%</span></div>
+      <div class="bar"><span style="width:${pct}%"></span></div></div>
+    ${p.actions.map(a=>`<div class="pl-act${a.done?" done":""}" data-aid="${a.id}">
+      <button class="pl-chk" data-act="tog" aria-label="${a.done?"Décocher":"Cocher"}">${a.done?"✓":""}</button>
+      <span class="pl-txt">${escapeHtml(a.text)}</span>
+      <button class="pl-x" data-act="rm" aria-label="Retirer l'action">×</button>
+    </div>`).join("")}
+    <div class="pl-add"><input data-act="new" placeholder="Ajouter une action…" /><button data-act="add">＋</button></div>
+  </div>`;
+}
+function addPlanAction(p, input){
+  const text = input.value.trim();
+  if(!text){ shake(input); return; }
+  p.actions.push({id:uid(), text, done:false});
+  p.doneAt = "";
+  save(); renderPlans();
+  const again = $(`#plansList .plan[data-id="${p.id}"] [data-act="new"]`); if(again) again.focus();
+}
+// un seul écouteur pour toutes les cartes (elles sont redessinées à chaque changement)
+$("#plansList").addEventListener("click",e=>{
+  const btn = e.target.closest("[data-act]"); if(!btn || btn.dataset.act==="new") return;
+  const card = btn.closest(".plan"); const p = card && (S.plans||[]).find(x=>x.id===card.dataset.id); if(!p) return;
+  const row = btn.closest(".pl-act"); const a = row && p.actions.find(x=>x.id===row.dataset.aid);
+  if(btn.dataset.act==="edit") return openPlanSheet(p.id);
+  if(btn.dataset.act==="add")  return addPlanAction(p, card.querySelector('[data-act="new"]'));
+  if(btn.dataset.act==="tog" && a){
+    const was = planDone(p);
+    a.done = !a.done;
+    p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
+    save(); renderPlans();
+    if(!was && planDone(p)) toast("🎉 Objectif atteint !");
+  }
+  if(btn.dataset.act==="rm" && a){
+    p.actions = p.actions.filter(x=>x.id!==a.id);
+    p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
+    save(); renderPlans();
+  }
+});
+$("#plansList").addEventListener("keydown",e=>{
+  if(e.key!=="Enter" || e.target.dataset.act!=="new") return;
+  const p = (S.plans||[]).find(x=>x.id===e.target.closest(".plan").dataset.id);
+  if(p) addPlanAction(p, e.target);
+});
+function openPlanSheet(id){
+  const p = id ? S.plans.find(x=>x.id===id) : {title:"",why:"",due:"",actions:[]};
+  const isNew = !id;
+  openSheet(`
+    <h3>${isNew?"🎯 Nouvel objectif":"Modifier l'objectif"}</h3>
+    <label class="fld">Objectif</label>
+    <input id="plTitle" value="${escapeHtml(p.title)}" placeholder="ex : Passer mon permis de conduire" />
+    <label class="fld">Pourquoi c'est important (optionnel)</label>
+    <input id="plWhy" value="${escapeHtml(p.why||"")}" placeholder="ex : Être autonome pour aller au travail" />
+    <label class="fld">À atteindre avant le (optionnel)</label>
+    <input id="plDue" type="date" value="${p.due||""}" />
+    ${isNew?`<label class="fld">Actions à faire (une par ligne)</label>
+    <textarea id="plActs" class="pl-ta" placeholder="S'inscrire à l'auto-école&#10;Réviser le code 30 min par jour&#10;Passer l'examen du code"></textarea>`:
+    `<div class="small" style="margin-top:10px;">Ajoute, coche ou retire les actions directement sur la carte de l'objectif.</div>`}
+    <div style="height:14px;"></div>
+    <button class="btn" id="plSave">Enregistrer</button>
+    ${isNew?"":`<div style="text-align:center;margin-top:12px;"><button class="danger-link" id="plDel">🗑 Supprimer l'objectif</button></div>`}
+  `);
+  setTimeout(()=>{ const t=$("#plTitle"); if(t && isNew) t.focus(); },120);
+  $("#plSave").addEventListener("click",()=>{
+    const title = $("#plTitle").value.trim();
+    if(!title){ shake($("#plTitle")); return; }
+    const why = $("#plWhy").value.trim(), due = $("#plDue").value || "";
+    if(isNew){
+      const actions = $("#plActs").value.split("\n").map(x=>x.trim()).filter(Boolean)
+        .map(text=>({id:uid(), text, done:false}));
+      S.plans.push({id:uid(), title, why, due, actions, createdAt:todayISO(), doneAt:""});
+    }else{ p.title=title; p.why=why; p.due=due; }
+    save(); closeSheet(); toast(isNew?"Objectif créé 🎯":"Objectif enregistré"); renderPlans();
+  });
+  if(!isNew) $("#plDel").addEventListener("click",()=>{
+    S.plans = S.plans.filter(x=>x.id!==id);
+    save(); closeSheet(); toast("Objectif supprimé"); renderPlans();
+  });
+}
 
 /* ============================================================
    DETTES & CRÉANCES
@@ -1929,6 +2067,7 @@ function renderAll(){
   renderBudget();
   renderSaving();
   renderEvents();
+  renderPlans();
   renderHistory();
   renderDebts();
   renderStats();

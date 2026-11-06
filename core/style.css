@@ -359,6 +359,12 @@
   .pl-add button{flex:0 0 auto;width:44px;border:0;border-radius:12px;background:var(--green-soft);color:var(--green);font-size:20px;font-weight:800;cursor:pointer;font-family:inherit;}
   .pl-ta{width:100%;min-height:110px;font-size:16px;padding:13px 14px;border:1.5px solid var(--line);border-radius:13px;background:#fff;color:var(--ink);font-family:inherit;resize:vertical;}
   .pl-ta:focus{outline:none;border-color:var(--green);}
+  .pl-btns{display:flex;gap:6px;flex:0 0 auto;}
+  .pl-tip{display:none;position:absolute;top:0;background:#16202a;color:#fff;font-size:12px;line-height:1.35;padding:6px 9px;border-radius:9px;pointer-events:none;white-space:nowrap;box-shadow:0 6px 14px rgba(0,0,0,.18);}
+  .chartwrap:has(#plChart){touch-action:pan-y;}
+  .chartlegend i.dash{background:repeating-linear-gradient(90deg,#9aa8b5 0 5px,transparent 5px 9px);}
+  .pl-hist{display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-top:1px solid var(--line);font-size:14px;}
+  .pl-hist .small{flex:0 0 auto;}
 
   /* calendrier */
   .calnav{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);text-transform:capitalize;}

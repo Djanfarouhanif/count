@@ -71,7 +71,15 @@ function normalize(s){
   s.goals   = s.goals || [];
   s.events  = s.events || [];
   s.plans   = s.plans  || [];
-  s.plans.forEach(p=>{ p.actions = p.actions || []; });
+  s.plans.forEach(p=>{
+    p.actions = p.actions || [];
+    // dates des actions (pour la courbe d'évolution) ; anciennes actions : date de l'objectif
+    p.actions.forEach(a=>{
+      a.createdAt = a.createdAt || p.createdAt || "";
+      if(a.done && !a.doneAt) a.doneAt = p.doneAt || p.createdAt || "";
+      if(!a.done) a.doneAt = "";
+    });
+  });
   s.events.forEach(e=>{ e.cost = Number(e.cost) || 0; e.status = e.status==="annule" ? "annule" : "prevu"; });
   s.tx      = s.tx || [];
   // migration : sépare l'épargne de sécurité (réserve) des objectifs d'achat.
@@ -1093,7 +1101,10 @@ function planCard(p){
         ${p.why?`<div class="small pl-why">${escapeHtml(p.why)}</div>`:""}
         ${due}
       </div>
-      <button class="iconbtn pl-edit" data-act="edit" aria-label="Modifier l'objectif">✏️</button>
+      <div class="pl-btns">
+        <button class="iconbtn pl-edit" data-act="stats" aria-label="Évolution de l'objectif">📈</button>
+        <button class="iconbtn pl-edit" data-act="edit" aria-label="Modifier l'objectif">✏️</button>
+      </div>
     </div>
     <div class="prog"><div class="head"><span class="name">${n?`${k}/${n} action${n>1?"s":""}`:"Aucune action"}</span><span class="vals">${pct}%</span></div>
       <div class="bar"><span style="width:${pct}%"></span></div></div>
@@ -1108,7 +1119,7 @@ function planCard(p){
 function addPlanAction(p, input){
   const text = input.value.trim();
   if(!text){ shake(input); return; }
-  p.actions.push({id:uid(), text, done:false});
+  p.actions.push({id:uid(), text, done:false, createdAt:todayISO(), doneAt:""});
   p.doneAt = "";
   save(); renderPlans();
   const again = $(`#plansList .plan[data-id="${p.id}"] [data-act="new"]`); if(again) again.focus();
@@ -1118,11 +1129,13 @@ $("#plansList").addEventListener("click",e=>{
   const btn = e.target.closest("[data-act]"); if(!btn || btn.dataset.act==="new") return;
   const card = btn.closest(".plan"); const p = card && (S.plans||[]).find(x=>x.id===card.dataset.id); if(!p) return;
   const row = btn.closest(".pl-act"); const a = row && p.actions.find(x=>x.id===row.dataset.aid);
-  if(btn.dataset.act==="edit") return openPlanSheet(p.id);
+  if(btn.dataset.act==="edit")  return openPlanSheet(p.id);
+  if(btn.dataset.act==="stats") return openPlanStats(p.id);
   if(btn.dataset.act==="add")  return addPlanAction(p, card.querySelector('[data-act="new"]'));
   if(btn.dataset.act==="tog" && a){
     const was = planDone(p);
     a.done = !a.done;
+    a.doneAt = a.done ? todayISO() : "";
     p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
     save(); renderPlans();
     if(!was && planDone(p)) toast("🎉 Objectif atteint !");
@@ -1138,6 +1151,148 @@ $("#plansList").addEventListener("keydown",e=>{
   const p = (S.plans||[]).find(x=>x.id===e.target.closest(".plan").dataset.id);
   if(p) addPlanAction(p, e.target);
 });
+/* ----- Évolution d'un objectif perso : courbe des actions faites + valeurs clés ----- */
+const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const keyDate = k => { const [y,m,d] = k.split("-").map(Number); return new Date(y,m-1,d); };
+const shortDay = d => `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,4)}.`;
+let planChart = null;   // données de la courbe affichée (pour le survol)
+function planSeries(p){
+  const created = p.createdAt ? dayKey(new Date(p.createdAt)) : dayKey(new Date());
+  const doneKeys = p.actions.filter(a=>a.done).map(a=>dayKey(new Date(a.doneAt || a.createdAt || p.createdAt || Date.now())));
+  const start = [created, ...doneKeys].sort()[0];
+  const today = dayKey(new Date());
+  const end = p.due && p.due > today ? p.due : today;
+  const days = [];
+  for(let d = keyDate(start); dayKey(d) <= end; d.setDate(d.getDate()+1)) days.push(dayKey(d));
+  const done = days.map(k => k > today ? null : doneKeys.filter(x=>x<=k).length);
+  return {days, done, total:p.actions.length, today, start};
+}
+function openPlanStats(id){
+  const p = S.plans.find(x=>x.id===id); if(!p) return;
+  const s = planSeries(p);
+  const n = s.total, k = p.actions.filter(a=>a.done).length, pct = n ? Math.round(k*100/n) : 0;
+  const elapsed = Math.max(1, Math.round((keyDate(s.today) - keyDate(s.start))/86400000) + 1);
+  const perWeek = k * 7 / elapsed;
+  // fin estimée : au rythme actuel, combien de jours pour les actions restantes
+  let finV = "—", finH = "Coche une action pour l'estimer";
+  if(n && k===n){ finV = "Atteint 🎉"; finH = p.doneAt ? `le ${shortDay(new Date(p.doneAt))}` : ""; }
+  else if(k>0){
+    const eta = new Date(); eta.setDate(eta.getDate() + Math.ceil((n-k) / (k/elapsed)));
+    finV = shortDay(eta) + " " + eta.getFullYear();
+    if(p.due){ const late = dayKey(eta) > p.due; finH = late ? "⚠️ après ta date limite" : "✓ avant ta date limite"; }
+    else finH = "au rythme actuel";
+  }
+  const dd = p.due ? daysUntil(p.due) : null;
+  const dueV = p.due ? (dd<0 ? `${-dd} j de retard` : dd===0 ? "Aujourd'hui" : `${dd} jour${dd>1?"s":""}`) : "—";
+  const dueH = p.due ? `limite : ${shortDay(keyDate(p.due))} ${p.due.slice(0,4)}` : "pas de date limite";
+  const doneList = p.actions.filter(a=>a.done)
+    .sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||""));
+  openSheet(`
+    <h3>📈 Évolution — ${escapeHtml(p.title)}</h3>
+    <div class="small">Commencé le ${shortDay(keyDate(s.start))} ${s.start.slice(0,4)} · il y a ${elapsed} jour${elapsed>1?"s":""}</div>
+    <div style="height:12px;"></div>
+    <div class="kpis">
+      <div class="kpi"><div class="k">Progression</div><div class="v">${pct} %</div><div class="h">${k}/${n} action${n>1?"s":""} faite${k>1?"s":""}</div></div>
+      <div class="kpi"><div class="k">Rythme</div><div class="v">${perWeek.toLocaleString("fr-FR",{maximumFractionDigits:1})}</div><div class="h">action${perWeek>=2?"s":""} / semaine</div></div>
+      <div class="kpi"><div class="k">Fin estimée</div><div class="v">${finV}</div><div class="h">${finH}</div></div>
+      <div class="kpi"><div class="k">Temps restant</div><div class="v">${dueV}</div><div class="h">${dueH}</div></div>
+    </div>
+    <div class="section-title" style="margin-top:16px;">Actions faites au fil du temps</div>
+    <div class="chartwrap" id="plChartWrap"><canvas id="plChart"></canvas><div class="pl-tip" id="plTip"></div></div>
+    <div class="chartlegend">
+      <span class="cl"><i style="background:var(--green)"></i>Actions faites</span>
+      ${p.due && n ? `<span class="cl"><i class="dash"></i>Rythme pour finir à temps</span>` : ""}
+    </div>
+    <div class="section-title" style="margin-top:16px;">✅ Dernières actions terminées</div>
+    ${doneList.length ? doneList.map(a=>`<div class="pl-hist"><span>${escapeHtml(a.text)}</span><span class="small">${a.doneAt?shortDay(new Date(a.doneAt))+" "+new Date(a.doneAt).getFullYear():"—"}</span></div>`).join("")
+      : `<div class="empty">Aucune action cochée pour l'instant.</div>`}
+  `);
+  planChart = {s, due:p.due};
+  drawPlanChart();
+  const wrap = $("#plChartWrap");
+  const hover = e=>{
+    const c = planChart; if(!c || !c.x) return;
+    const r = wrap.getBoundingClientRect();
+    const i = Math.max(0, Math.min(c.s.days.length-1, Math.round(c.inv(e.clientX - r.left))));
+    const v = c.s.done[i];
+    if(v===null){ $("#plTip").style.display="none"; drawPlanChart(); return; }
+    drawPlanChart(i);
+    const tip = $("#plTip");
+    tip.innerHTML = `<b>${shortDay(keyDate(c.s.days[i]))}</b><br>${v}/${c.s.total} action${c.s.total>1?"s":""} faite${v>1?"s":""}`;
+    tip.style.display = "block";
+    const tx = c.x(i);
+    tip.style.left = Math.min(Math.max(tx - tip.offsetWidth/2, 0), r.width - tip.offsetWidth) + "px";
+  };
+  wrap.addEventListener("pointermove", hover);
+  wrap.addEventListener("pointerdown", hover);
+  wrap.addEventListener("pointerleave", ()=>{ $("#plTip").style.display="none"; drawPlanChart(); });
+}
+/* courbe en escalier (canvas natif, comme les stats) ; hi = index survolé */
+function drawPlanChart(hi){
+  const cv = $("#plChart"); if(!cv || !planChart) return;
+  const {s, due} = planChart;
+  const box = cv.parentElement.getBoundingClientRect();
+  const W = Math.max(240, Math.round(box.width)), H = Math.round(box.height) || 190;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W*dpr; cv.height = H*dpr;
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  const padL=28, padR=12, padT=12, padB=22;
+  const w = W-padL-padR, h = H-padT-padB;
+  const nd = s.days.length, max = Math.max(1, s.total);
+  const x = i => padL + (nd<=1 ? w/2 : i*w/(nd-1));
+  const y = v => padT + h - (v/max)*h;
+  planChart.x = x;
+  planChart.inv = px => nd<=1 ? 0 : (px - padL) * (nd-1) / w;
+
+  // grille + graduations entières
+  ctx.strokeStyle="#eef1f4"; ctx.lineWidth=1;
+  ctx.fillStyle="#7a8a99"; ctx.font="10px sans-serif"; ctx.textAlign="right"; ctx.textBaseline="middle";
+  const step = Math.max(1, Math.ceil(max/4));
+  for(let v=0; v<=max; v+=step){
+    ctx.beginPath(); ctx.moveTo(padL,y(v)); ctx.lineTo(W-padR,y(v)); ctx.stroke();
+    ctx.fillText(v, padL-6, y(v));
+  }
+  if(max % step){ ctx.beginPath(); ctx.moveTo(padL,y(max)); ctx.lineTo(W-padR,y(max)); ctx.stroke(); ctx.fillText(max, padL-6, y(max)); }
+  // dates : ~4 repères
+  ctx.textBaseline="top";
+  const ticks = nd<=1 ? [0] : [...new Set([0, Math.round((nd-1)/3), Math.round(2*(nd-1)/3), nd-1])];
+  ticks.forEach((i,j)=>{
+    ctx.textAlign = j===0 && ticks.length>1 ? "left" : j===ticks.length-1 && ticks.length>1 ? "right" : "center";
+    ctx.fillText(shortDay(keyDate(s.days[i])), x(i), padT+h+6);
+  });
+  // rythme pour finir à temps : de 0 au début jusqu'au total à la date limite
+  if(due && s.total){
+    const di = s.days.indexOf(due);
+    if(di>0){
+      ctx.setLineDash([5,4]); ctx.strokeStyle="#9aa8b5"; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(x(0),y(0)); ctx.lineTo(x(di),y(s.total)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  // actions faites : escalier vert + zone légère
+  const last = s.done.reduce((a,v,i)=>v===null?a:i, 0);
+  const path = ()=>{
+    ctx.moveTo(x(0), y(s.done[0]));
+    for(let i=1;i<=last;i++){ ctx.lineTo(x(i), y(s.done[i-1])); ctx.lineTo(x(i), y(s.done[i])); }
+  };
+  const grad = ctx.createLinearGradient(0,padT,0,padT+h);
+  grad.addColorStop(0,"#0e9f6e33"); grad.addColorStop(1,"#0e9f6e00");
+  ctx.beginPath(); path(); ctx.lineTo(x(last), padT+h); ctx.lineTo(x(0), padT+h); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.beginPath(); path();
+  ctx.strokeStyle="#0e9f6e"; ctx.lineWidth=2; ctx.lineJoin="round"; ctx.lineCap="round"; ctx.stroke();
+  // point d'aujourd'hui (ou point survolé + repère vertical)
+  const dot = (i)=>{ ctx.beginPath(); ctx.arc(x(i),y(s.done[i]),4.5,0,Math.PI*2); ctx.fillStyle="#0e9f6e"; ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke(); };
+  if(hi!==undefined && s.done[hi]!==null){
+    ctx.strokeStyle="#cfd8e0"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x(hi),padT); ctx.lineTo(x(hi),padT+h); ctx.stroke();
+    dot(hi);
+  } else dot(last);
+}
+window.addEventListener("resize",()=>{ if($("#plChart")) drawPlanChart(); });
+
 function openPlanSheet(id){
   const p = id ? S.plans.find(x=>x.id===id) : {title:"",why:"",due:"",actions:[]};
   const isNew = !id;
@@ -1163,7 +1318,7 @@ function openPlanSheet(id){
     const why = $("#plWhy").value.trim(), due = $("#plDue").value || "";
     if(isNew){
       const actions = $("#plActsInput").value.split("\n").map(x=>x.trim()).filter(Boolean)
-        .map(text=>({id:uid(), text, done:false}));
+        .map(text=>({id:uid(), text, done:false, createdAt:todayISO(), doneAt:""}));
       S.plans.push({id:uid(), title, why, due, actions, createdAt:todayISO(), doneAt:""});
     }else{ p.title=title; p.why=why; p.due=due; }
     save(); closeSheet(); toast(isNew?"Objectif créé 🎯":"Objectif enregistré"); renderPlans();

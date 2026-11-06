@@ -1150,7 +1150,7 @@ function openPlanSheet(id){
     <label class="fld">À atteindre avant le (optionnel)</label>
     <input id="plDue" type="date" value="${p.due||""}" />
     ${isNew?`<label class="fld">Actions à faire (une par ligne)</label>
-    <textarea id="plActs" class="pl-ta" placeholder="S'inscrire à l'auto-école&#10;Réviser le code 30 min par jour&#10;Passer l'examen du code"></textarea>`:
+    <textarea id="plActsInput" class="pl-ta" placeholder="S'inscrire à l'auto-école&#10;Réviser le code 30 min par jour&#10;Passer l'examen du code"></textarea>`:
     `<div class="small" style="margin-top:10px;">Ajoute, coche ou retire les actions directement sur la carte de l'objectif.</div>`}
     <div style="height:14px;"></div>
     <button class="btn" id="plSave">Enregistrer</button>
@@ -1162,7 +1162,7 @@ function openPlanSheet(id){
     if(!title){ shake($("#plTitle")); return; }
     const why = $("#plWhy").value.trim(), due = $("#plDue").value || "";
     if(isNew){
-      const actions = $("#plActs").value.split("\n").map(x=>x.trim()).filter(Boolean)
+      const actions = $("#plActsInput").value.split("\n").map(x=>x.trim()).filter(Boolean)
         .map(text=>({id:uid(), text, done:false}));
       S.plans.push({id:uid(), title, why, due, actions, createdAt:todayISO(), doneAt:""});
     }else{ p.title=title; p.why=why; p.due=due; }

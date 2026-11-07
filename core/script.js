@@ -1094,6 +1094,14 @@ function habitLastDays(a, n){
   for(let i=0;i<n;i++){ out.unshift(dayKey(d)); d.setDate(d.getDate()-1); }
   return out.map(k=>({k, on:set.has(k)}));
 }
+// cocher / décocher n'importe quel jour passé d'une action quotidienne ; renvoie true si le jour est fait
+function toggleHabitDay(a, k){
+  a.days = a.days || [];
+  const i = a.days.indexOf(k);
+  if(i>=0) a.days.splice(i,1); else a.days.push(k);
+  return i<0;
+}
+const dayLabel = k => { const d = keyDate(k); return `${WEEKDAYS[d.getDay()]} ${shortDay(d)}`; };
 // atteint = toutes les étapes « une fois » cochées (les actions quotidiennes ne terminent pas un objectif)
 const planDone = p => { const st = stepsOf(p); return st.length>0 && st.every(a=>a.done); };
 let lastKind = "once";   // type choisi en dernier dans « Ajouter une action »
@@ -1147,7 +1155,11 @@ function planCard(p){
       const c = isChecked(a), streak = a.daily ? habitStreak(a) : 0;
       return `<div class="pl-act${c?" done":""}" data-aid="${a.id}">
       <button class="pl-chk" data-act="tog" aria-label="${c?"Décocher":"Cocher"}">${c?"✓":""}</button>
-      <span class="pl-txt">${escapeHtml(a.text)}${a.daily?`<span class="pl-tag">🔁 Chaque jour${streak?` · 🔥 ${streak} jour${streak>1?"s":""} de suite`:""}</span>`:""}</span>
+      <span class="pl-txt">${escapeHtml(a.text)}${a.daily?`<span class="pl-tag">🔁 Chaque jour${streak?` · 🔥 ${streak} jour${streak>1?"s":""} de suite`:""}</span>
+        <span class="pl-week">${habitLastDays(a,7).map(x=>{
+          const d = keyDate(x.k);
+          return `<button class="pl-d${x.on?" on":""}${x.k===todayKey()?" td":""}" data-act="day" data-k="${x.k}" aria-pressed="${x.on}" aria-label="${dayLabel(x.k)} : ${x.on?"fait":"pas fait"}"><i>${WEEKDAYS[d.getDay()].charAt(0).toUpperCase()}</i>${d.getDate()}</button>`;
+        }).join("")}</span>`:""}</span>
       <button class="pl-x" data-act="rm" aria-label="Retirer l'action">×</button>
     </div>`;}).join("")}
     <div class="pl-add"><input data-act="new" placeholder="Ajouter une action…" />
@@ -1178,11 +1190,16 @@ $("#plansList").addEventListener("click",e=>{
   if(btn.dataset.act==="edit")  return openPlanSheet(p.id);
   if(btn.dataset.act==="stats") return openPlanStats(p.id);
   if(btn.dataset.act==="add")  return addPlanAction(p, card.querySelector('[data-act="new"]'));
-  if(btn.dataset.act==="tog" && a && a.daily){
-    const t = todayKey(), i = a.days.indexOf(t);
-    if(i>=0) a.days.splice(i,1); else a.days.push(t);
+  if(btn.dataset.act==="day" && a){
+    const on = toggleHabitDay(a, btn.dataset.k);
     save(); renderPlans();
-    if(i<0 && habitsOf(p).every(doneToday)) toast("🔥 Tout est fait pour aujourd'hui !");
+    toast(`${dayLabel(btn.dataset.k)} : ${on?"fait ✓":"pas fait"}`);
+    return;
+  }
+  if(btn.dataset.act==="tog" && a && a.daily){
+    const on = toggleHabitDay(a, todayKey());
+    save(); renderPlans();
+    if(on && habitsOf(p).every(doneToday)) toast("🔥 Tout est fait pour aujourd'hui !");
     return;
   }
   if(btn.dataset.act==="tog" && a){
@@ -1257,12 +1274,13 @@ function openPlanStats(id){
       <div class="kpi"><div class="k">Temps restant</div><div class="v">${dueV}</div><div class="h">${dueH}</div></div>
     </div>
     ${hb.length ? `<div class="section-title" style="margin-top:16px;">🔁 Actions quotidiennes — 14 derniers jours</div>
+    <div class="small" style="margin-bottom:8px;">Touche un jour pour le cocher ou le décocher.</div>
     ${hb.map(a=>{
       const last = habitLastDays(a,14), d7 = last.slice(-7).filter(x=>x.on).length, d30 = habitLastDays(a,30).filter(x=>x.on).length;
       return `<div class="pl-habit">
         <div class="pl-habit-top"><b>${escapeHtml(a.text)}</b><span class="small">🔥 ${habitStreak(a)} j · record ${habitBest(a)} j</span></div>
-        <div class="pl-days" role="img" aria-label="${last.filter(x=>x.on).length} jours faits sur les 14 derniers">
-          ${last.map(x=>`<span class="${x.on?"on":""}${x.k===s.today?" td":""}" title="${shortDay(keyDate(x.k))}${x.on?" : fait":" : pas fait"}"></span>`).join("")}
+        <div class="pl-days">
+          ${last.map(x=>`<button class="${x.on?"on":""}${x.k===s.today?" td":""}" data-aid="${a.id}" data-k="${x.k}" aria-pressed="${x.on}" aria-label="${dayLabel(x.k)} : ${x.on?"fait":"pas fait"}" title="${dayLabel(x.k)}${x.on?" : fait":" : pas fait"}"></button>`).join("")}
         </div>
         <div class="small">${d7}/7 derniers jours · ${d30}/30 derniers jours</div>
       </div>`;}).join("")}` : ""}
@@ -1276,6 +1294,16 @@ function openPlanStats(id){
     ${doneList.length ? doneList.map(a=>`<div class="pl-hist"><span>${escapeHtml(a.text)}</span><span class="small">${a.doneAt?shortDay(new Date(a.doneAt))+" "+new Date(a.doneAt).getFullYear():"—"}</span></div>`).join("")
       : `<div class="empty">Aucune étape cochée pour l'instant.</div>`}` : ""}
   `);
+  $$("#sheetBody .pl-days button").forEach(b=>b.addEventListener("click",()=>{
+    const a = p.actions.find(x=>x.id===b.dataset.aid); if(!a) return;
+    const on = toggleHabitDay(a, b.dataset.k);
+    save(); renderPlans();
+    // on redessine la fiche sans perdre la position de défilement
+    const box = $("#sheet"), top = box.scrollTop;
+    openPlanStats(p.id);
+    box.scrollTop = top;
+    toast(`${dayLabel(b.dataset.k)} : ${on?"fait ✓":"pas fait"}`);
+  }));
   planChart = n ? {s, due:p.due} : null;
   if(!n) return;
   drawPlanChart();
@@ -1379,8 +1407,8 @@ function openPlanSheet(id){
     <label class="fld">🔁 Actions à refaire chaque jour (une par ligne)</label>
     <textarea id="plDailyInput" class="pl-ta" placeholder="Réviser le code 30 min&#10;Faire 20 pompes"></textarea>
     <div class="small" style="margin-top:6px;">Les actions quotidiennes se décochent toutes seules chaque matin.</div>`:
-    (p.actions.length ? `<label class="fld">Type des actions</label>
-    ${p.actions.map(a=>`<div class="pl-kindrow"><span>${escapeHtml(a.text)}</span>
+    (p.actions.length ? `<label class="fld">Actions (texte et type)</label>
+    ${p.actions.map(a=>`<div class="pl-kindrow"><input class="pl-kindtxt" data-aid="${a.id}" value="${escapeHtml(a.text)}" aria-label="Texte de l'action" />
       <select class="pl-kind" data-aid="${a.id}" aria-label="Type de l'action">
         <option value="once">Une fois</option>
         <option value="daily"${a.daily?" selected":""}>🔁 Chaque jour</option>
@@ -1404,6 +1432,10 @@ function openPlanSheet(id){
       S.plans.push({id:uid(), title, why, due, actions, createdAt:todayISO(), doneAt:""});
     }else{
       p.title=title; p.why=why; p.due=due;
+      $$("#sheetBody .pl-kindtxt").forEach(inp=>{
+        const a = p.actions.find(x=>x.id===inp.dataset.aid), text = inp.value.trim();
+        if(a && text) a.text = text;
+      });
       // changement de type : une étape cochée devient « faite ce jour-là », et inversement
       $$("#sheetBody .pl-kind").forEach(sel=>{
         const a = p.actions.find(x=>x.id===sel.dataset.aid), daily = sel.value==="daily";

@@ -1440,7 +1440,13 @@ function openPlanSheet(id){
       $$("#sheetBody .pl-kind").forEach(sel=>{
         const a = p.actions.find(x=>x.id===sel.dataset.aid), daily = sel.value==="daily";
         if(!a || a.daily===daily) return;
-        if(daily){ a.days = a.done && a.doneAt ? [dayKey(new Date(a.doneAt))] : []; a.daily = true; a.done = false; a.doneAt = ""; }
+        if(daily){
+          // coche d'avant le suivi des dates : sa date réelle est inconnue (doneAt = création de
+          // l'objectif, mis par la migration) -> on la garde sur aujourd'hui pour qu'elle reste visible
+          const known = a.doneAt && a.doneAt !== p.createdAt;
+          a.days = a.done ? [known ? dayKey(new Date(a.doneAt)) : todayKey()] : [];
+          a.daily = true; a.done = false; a.doneAt = "";
+        }
         else { a.done = doneToday(a); a.doneAt = a.done ? todayISO() : ""; a.daily = false; delete a.days; }
       });
       p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";

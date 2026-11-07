@@ -365,6 +365,19 @@
   .chartlegend i.dash{background:repeating-linear-gradient(90deg,#9aa8b5 0 5px,transparent 5px 9px);}
   .pl-hist{display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-top:1px solid var(--line);font-size:14px;}
   .pl-hist .small{flex:0 0 auto;}
+  .pl-today{margin:-2px 0 8px;}
+  .pl-tag{display:block;font-size:11px;font-weight:700;color:var(--blue);margin-top:2px;text-decoration:none;}
+  .pl-act.done .pl-tag{color:var(--muted);}
+  .pl-kind{flex:0 0 auto;width:auto;padding:8px 8px;font-size:13px;border-radius:12px;}
+  .pl-kindrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px;}
+  .pl-kindrow span{min-width:0;overflow-wrap:anywhere;}
+  .pl-habit{padding:10px 0;border-top:1px solid var(--line);}
+  .pl-habit-top{display:flex;justify-content:space-between;gap:10px;font-size:14px;margin-bottom:8px;}
+  .pl-habit-top .small{flex:0 0 auto;}
+  .pl-days{display:grid;grid-template-columns:repeat(14,1fr);gap:4px;margin-bottom:6px;}
+  .pl-days span{height:18px;border-radius:5px;background:#eef1f4;}
+  .pl-days span.on{background:var(--green);}
+  .pl-days span.td{box-shadow:0 0 0 2px #fff,0 0 0 3.5px #9aa8b5;}
 
   /* calendrier */
   .calnav{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);text-transform:capitalize;}

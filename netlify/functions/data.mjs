@@ -27,7 +27,8 @@ const SEED = {
   debts: [],
   goals: [],
   events: [],
-  plans: []
+  plans: [],
+  notes: []
 };
 
 export default async (req) => {

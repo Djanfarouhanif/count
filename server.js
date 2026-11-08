@@ -40,7 +40,8 @@ const SEED = {
   debts: [],
   goals: [],
   events: [],
-  plans: []
+  plans: [],
+  notes: []
 };
 
 function ensureData() {

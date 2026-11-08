@@ -46,6 +46,7 @@ function freshState(){
     goals: [],         // objectifs d'achat {id, name, target, saved, due}
     events: [],        // événements planifiés {id, name, date:"YYYY-MM-DD", time, place, cost, note, status:"prevu"|"annule"}
                        //   payé -> une dépense portant eventId est créée
+    notes: [],         // post-it {id, text (1re ligne = titre), color, pinned, createdAt, updatedAt}
     plans: [],         // objectifs perso {id, title, why, due:"YYYY-MM-DD"|"", actions:[{id,text,done}], createdAt, doneAt}
                        //   action daily:true = à refaire chaque jour : days = jours "YYYY-MM-DD" où elle a été faite
   };
@@ -71,6 +72,7 @@ function normalize(s){
   s.debts   = s.debts || [];
   s.goals   = s.goals || [];
   s.events  = s.events || [];
+  s.notes   = s.notes  || [];
   s.plans   = s.plans  || [];
   s.plans.forEach(p=>{
     p.actions = p.actions || [];
@@ -1048,7 +1050,8 @@ function openPayEvent(id){
     save();closeSheet();toast("Événement payé — dépense enregistrée");renderAll();
   });
 }
-$("#addEvent").addEventListener("click",()=> eventsView==="perso" ? openPlanSheet() : openEventSheet());
+$("#addEvent").addEventListener("click",()=>
+  eventsView==="perso" ? openPlanSheet() : eventsView==="notes" ? openNoteSheet() : openEventSheet());
 
 /* ============================================================
    OBJECTIFS PERSO (onglet Événements, vue « Perso ») :
@@ -1059,15 +1062,89 @@ let eventsView = "perso";   // vue affichée par défaut
 function setEventsView(v){
   eventsView = v;
   $$("#eventsSeg button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
-  $("#panel-perso").style.display  = v==="perso"  ? "" : "none";
-  $("#panel-events").style.display = v==="events" ? "" : "none";
-  $("#eventsTitle").textContent = v==="perso" ? "Mes objectifs" : "Événements";
-  const lbl = v==="perso" ? "Nouvel objectif" : "Planifier un événement";
+  ["perso","notes","events"].forEach(k=>{ $("#panel-"+k).style.display = v===k ? "" : "none"; });
+  $("#eventsTitle").textContent = {perso:"Mes objectifs", notes:"Mes post-it", events:"Événements"}[v];
+  const lbl = {perso:"Nouvel objectif", notes:"Nouveau post-it", events:"Planifier un événement"}[v];
   $("#addEvent").setAttribute("aria-label", lbl); $("#addEvent").title = lbl;
   const c=$("#content"); if(c) c.scrollTop=0;
-  renderEvents(); renderPlans();
+  renderEvents(); renderPlans(); renderNotes();
 }
 $$("#eventsSeg button").forEach(b=>b.addEventListener("click",()=>setEventsView(b.dataset.v)));
+
+/* ============================================================
+   POST-IT (onglet 👤, vue « Post-it ») : notes libres en couleur.
+   La 1re ligne d'une note sert de titre. Épinglées en haut, puis les plus récentes.
+============================================================ */
+const NOTE_COLORS = [
+  {id:"jaune",  bg:"#fff3a3", name:"Jaune"},
+  {id:"rose",   bg:"#ffd6e0", name:"Rose"},
+  {id:"bleu",   bg:"#d4e8ff", name:"Bleu"},
+  {id:"vert",   bg:"#d3f5df", name:"Vert"},
+  {id:"orange", bg:"#ffe1b8", name:"Orange"},
+  {id:"violet", bg:"#e6dcff", name:"Violet"},
+];
+const noteBg = id => (NOTE_COLORS.find(c=>c.id===id) || NOTE_COLORS[0]).bg;
+function renderNotes(){
+  const notes = S.notes || [];
+  const q = ($("#ntSearch").value || "").trim().toLowerCase();
+  const list = notes.filter(n => !q || n.text.toLowerCase().includes(q))
+    .sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || (b.updatedAt||"").localeCompare(a.updatedAt||""));
+  if(eventsView==="notes") $("#eventsSub").textContent = notes.length
+    ? `${notes.length} note${notes.length>1?"s":""}` : "Tes idées, rappels et pense-bêtes";
+  $("#ntGrid").innerHTML = list.length ? list.map(n=>{
+    const [title, ...rest] = n.text.split("\n");
+    const d = new Date(n.updatedAt || n.createdAt || Date.now());
+    return `<button class="note" data-id="${n.id}" style="background:${noteBg(n.color)}">
+      ${n.pinned?`<span class="nt-pin" aria-label="Épinglée">📌</span>`:""}
+      <span class="nt-title">${escapeHtml(title)}</span>
+      ${rest.join("\n").trim()?`<span class="nt-body">${escapeHtml(rest.join("\n").trim())}</span>`:""}
+      <span class="nt-date">${shortDay(d)}</span>
+    </button>`;
+  }).join("") : `<div class="empty" style="grid-column:1/-1;">${q ? "Aucune note ne correspond." : "Aucune note pour l'instant.<br>Touche ＋ pour coller ton premier post-it."}</div>`;
+}
+$("#ntSearch").addEventListener("input", renderNotes);
+$("#ntGrid").addEventListener("click", e=>{
+  const card = e.target.closest(".note"); if(card) openNoteSheet(card.dataset.id);
+});
+function openNoteSheet(id){
+  const n = id ? S.notes.find(x=>x.id===id) : {text:"", color:"jaune", pinned:false};
+  if(!n) return;
+  const isNew = !id;
+  let color = n.color || "jaune", pinned = !!n.pinned;
+  openSheet(`
+    <h3>${isNew?"📝 Nouveau post-it":"Modifier le post-it"}</h3>
+    <textarea id="ntText" class="pl-ta nt-ta" placeholder="Titre sur la 1re ligne&#10;puis ta note…" style="background:${noteBg(color)}">${escapeHtml(n.text)}</textarea>
+    <label class="fld">Couleur</label>
+    <div class="nt-colors">${NOTE_COLORS.map(c=>`<button class="nt-sw${c.id===color?" on":""}" data-c="${c.id}" style="background:${c.bg}" aria-label="${c.name}"></button>`).join("")}</div>
+    <div style="height:12px;"></div>
+    <button class="btn ghost" id="ntPin">${pinned?"📌 Épinglée en haut — retirer":"📌 Épingler en haut"}</button>
+    <div style="height:10px;"></div>
+    <button class="btn" id="ntSave">Enregistrer</button>
+    ${isNew?"":`<div class="small" style="text-align:center;margin-top:10px;">Créée le ${shortDay(new Date(n.createdAt))} ${new Date(n.createdAt).getFullYear()}</div>
+    <div style="text-align:center;margin-top:8px;"><button class="danger-link" id="ntDel">🗑 Supprimer le post-it</button></div>`}
+  `);
+  if(isNew) setTimeout(()=>{ const t=$("#ntText"); if(t) t.focus(); },120);
+  $$("#sheetBody .nt-sw").forEach(b=>b.addEventListener("click",()=>{
+    color = b.dataset.c;
+    $$("#sheetBody .nt-sw").forEach(x=>x.classList.toggle("on", x===b));
+    $("#ntText").style.background = noteBg(color);
+  }));
+  $("#ntPin").addEventListener("click",()=>{
+    pinned = !pinned;
+    $("#ntPin").textContent = pinned ? "📌 Épinglée en haut — retirer" : "📌 Épingler en haut";
+  });
+  $("#ntSave").addEventListener("click",()=>{
+    const text = $("#ntText").value.replace(/\s+$/,"").replace(/^\s*\n/,"");
+    if(!text.trim()){ shake($("#ntText")); return; }
+    if(isNew) S.notes.push({id:uid(), text, color, pinned, createdAt:todayISO(), updatedAt:todayISO()});
+    else { if(n.text!==text) n.updatedAt = todayISO(); n.text = text; n.color = color; n.pinned = pinned; }
+    save(); closeSheet(); toast(isNew?"Post-it ajouté 📝":"Post-it enregistré"); renderNotes();
+  });
+  if(!isNew) $("#ntDel").addEventListener("click",()=>{
+    S.notes = S.notes.filter(x=>x.id!==id);
+    save(); closeSheet(); toast("Post-it supprimé"); renderNotes();
+  });
+}
 
 // deux sortes d'actions : « une fois » (étape, cochée pour de bon) et « chaque jour »
 // (se décoche toute seule le lendemain : on garde seulement les jours où elle a été faite)
@@ -2353,6 +2430,7 @@ function renderAll(){
   renderSaving();
   renderEvents();
   renderPlans();
+  renderNotes();
   renderHistory();
   renderDebts();
   renderStats();

@@ -158,7 +158,17 @@
     <div style="padding:0 16px;">
       <div class="seg" id="eventsSeg">
         <button data-v="perso" class="on">🎯 Perso</button>
+        <button data-v="notes">📝 Post-it</button>
         <button data-v="events">🗓️ Événements</button>
+      </div>
+
+      <div id="panel-notes" style="display:none;">
+        <div class="evsearch">
+          <span class="evsearch-ico">🔍</span>
+          <input id="ntSearch" type="search" placeholder="Rechercher dans mes notes…" autocomplete="off" />
+        </div>
+        <div class="ntgrid" id="ntGrid"></div>
+        <div style="height:18px;"></div>
       </div>
 
       <div id="panel-perso">

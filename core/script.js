@@ -47,8 +47,8 @@ function freshState(){
     events: [],        // événements planifiés {id, name, date:"YYYY-MM-DD", time, place, cost, note, status:"prevu"|"annule"}
                        //   payé -> une dépense portant eventId est créée
     notes: [],         // post-it {id, text (1re ligne = titre), color, pinned, createdAt, updatedAt}
-    plans: [],         // objectifs perso {id, title, why, actions:[{id,text,done}], createdAt, doneAt}
-                       //   measure {target, unit} = objectif chiffré (ex : 5000 h) ; logs [{id, date, amount}] = ajouts par jour
+    plans: [],         // objectifs perso {id, title, why, measure:{target, unit}, logs:[{id, date, amount}], createdAt, doneAt}
+                       //   (ex : 5000 h ; chaque jour on ajoute son temps, la date de fin est prévue d'après le rythme)
   };
 }
 
@@ -75,19 +75,11 @@ function normalize(s){
   s.notes   = s.notes  || [];
   s.plans   = s.plans  || [];
   s.plans.forEach(p=>{
-    p.actions = p.actions || [];
     delete p.due;   // plus de date limite : la fin vient de la prévision
     p.measure = p.measure && Number(p.measure.target)>0
       ? {target:Number(p.measure.target), unit:String(p.measure.unit||"h")} : null;
     p.logs = (p.logs||[]).map(l=>({...l, amount:Number(l.amount)||0})).filter(l=>l.date && l.amount>0);
-    // dates des actions (pour la courbe d'évolution) ; anciennes actions : date de l'objectif
-    p.actions.forEach(a=>{
-      // anciennes actions « chaque jour » (fonction retirée) : deviennent des étapes normales
-      if(a.daily){ delete a.daily; delete a.days; a.done = false; a.doneAt = ""; }
-      a.createdAt = a.createdAt || p.createdAt || "";
-      if(a.done && !a.doneAt) a.doneAt = p.doneAt || p.createdAt || "";
-      if(!a.done) a.doneAt = "";
-    });
+    // (les anciennes actions à cocher, fonction retirée, restent dans p.actions sans être affichées)
   });
   s.events.forEach(e=>{ e.cost = Number(e.cost) || 0; e.status = e.status==="annule" ? "annule" : "prevu"; });
   s.tx      = s.tx || [];
@@ -1150,17 +1142,11 @@ function openNoteSheet(id){
   });
 }
 
-// une action = une étape à faire une fois (cochée pour de bon)
 const todayKey = () => dayKey(new Date());
-const stepsOf  = p => p.actions;
 const dayLabel = k => { const d = keyDate(k); return `${WEEKDAYS[d.getDay()]} ${shortDay(d)}`; };
-// atteint = toutes les étapes cochées ; objectif chiffré : le total atteint (et ses étapes cochées, s'il en a)
-const planDone = p => {
-  const st = stepsOf(p), stepsOk = st.every(a=>a.done);
-  if(hasMeasure(p)) return measureTotal(p) >= p.measure.target && stepsOk;
-  return st.length>0 && stepsOk;
-};
-/* ----- Objectif chiffré (ex : 5000 h) : on ajoute chaque jour ce qu'on a fait ----- */
+// atteint = le total est atteint
+const planDone = p => hasMeasure(p) && measureTotal(p) >= p.measure.target;
+/* ----- Un objectif = un total à atteindre (ex : 5000 h) : on ajoute chaque jour ce qu'on a fait ----- */
 const hasMeasure   = p => !!(p.measure && p.measure.target>0);
 const measureTotal = p => (p.logs||[]).reduce((t,l)=>t+l.amount,0);
 const logOn        = (p,k) => (p.logs||[]).filter(l=>l.date===k).reduce((t,l)=>t+l.amount,0);
@@ -1206,145 +1192,83 @@ function addMeasureLog(p, v, date){
   toast(!was && planDone(p) ? "🎉 Objectif atteint !" : `+${fmtQty(v)} ${u} — total ${fmtQty(measureTotal(p))} ${u}`);
 }
 
-// date de fin prévue : objectif chiffré -> selon les heures ajoutées ; sinon selon le rythme des étapes
-function planEta(p){
-  if(hasMeasure(p)) return measureForecast(p).eta;
-  const st = stepsOf(p), k = st.filter(a=>a.done).length;
-  if(!k || k===st.length) return null;
-  const start = dayKey(new Date(p.createdAt || Date.now()));
-  const elapsed = Math.max(1, Math.round((keyDate(todayKey()) - keyDate(start))/86400000) + 1);
-  const d = new Date(); d.setDate(d.getDate() + Math.ceil((st.length-k) / (k/elapsed)));
-  return dayKey(d);
-}
 function renderPlans(){
   const plans  = S.plans || [];
-  const active = plans.filter(p=>!planDone(p)).sort((a,b)=>(planEta(a)||"9999").localeCompare(planEta(b)||"9999"));
+  const eta    = p => hasMeasure(p) ? measureForecast(p).eta : null;
+  const active = plans.filter(p=>!planDone(p)).sort((a,b)=>(eta(a)||"9999").localeCompare(eta(b)||"9999"));
   const done   = plans.filter(planDone).sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||""));
-  const nActs  = plans.reduce((a,p)=>a+p.actions.length,0);
-  const nOk    = plans.reduce((a,p)=>a+p.actions.filter(x=>x.done).length,0);
   $("#plCount").textContent = active.length;
-  $("#plActs").textContent  = `${nOk}/${nActs}`;
+  $("#plToday").textContent = `${active.filter(p=>logOn(p,todayKey())>0).length}/${active.length}`;
   $("#plDone").textContent  = done.length;
   if(eventsView==="perso") $("#eventsSub").textContent = active.length
     ? `${active.length} objectif${active.length>1?"s":""} en cours`
-    : "Définis tes objectifs et les actions pour les atteindre";
+    : "Fixe un total d'heures et ajoute ton temps chaque jour";
   $("#plansList").innerHTML = plans.length
     ? (active.length ? active.map(planCard).join("") : `<div class="empty">Tous tes objectifs sont atteints 🎉</div>`)
       + (done.length ? `<div class="section-title">✅ Objectifs atteints</div>` + done.map(planCard).join("") : "")
-    : `<div class="empty">Aucun objectif pour l'instant.<br>Touche ＋ pour en créer un et lister les actions à faire.</div>`;
+    : `<div class="empty">Aucun objectif pour l'instant.<br>Touche ＋ pour en créer un (ex : 5000 h de guitare).</div>`;
 }
 function planCard(p){
-  const st = stepsOf(p), n = st.length, k = st.filter(a=>a.done).length, ok = planDone(p);
-  let pct = n ? Math.round(k*100/n) : 0, pctTxt = pct;
-  let progName = n ? `${k}/${n} étape${n>1?"s":""}` : "Aucune action";
-  const ms = hasMeasure(p), u = ms ? escapeHtml(p.measure.unit) : "";
-  if(ms){   // la barre suit le total de l'objectif chiffré
-    const tot = measureTotal(p), T = p.measure.target;
-    pct = Math.min(100, tot*100/T); pctTxt = fmtPct(pct);
-    progName = `${fmtQty(tot)} / ${fmtQty(T)} ${u}`;
-  }
-  // fin prévue : avance ou recule selon ce qui est fait
-  const eta = ok ? null : planEta(p);
-  const etaTag = ok ? "" : eta ? `<span class="pl-due">🏁 Fin prévue : ${longDay(eta)} · ${inDays(eta)}</span>`
-    : ms ? `<span class="pl-due">🏁 Ajoute ton temps pour voir la date de fin</span>` : "";
-  return `<div class="card plan${ok?" ok":""}" data-id="${p.id}">
-    <div class="pl-head">
+  const ok = planDone(p), ms = hasMeasure(p);
+  const head = `<div class="pl-head">
       <div>
         <div class="pl-title">${ok?"🏆 ":""}${escapeHtml(p.title)}</div>
         ${p.why?`<div class="small pl-why">${escapeHtml(p.why)}</div>`:""}
-        ${etaTag}
+        ${ms && !ok ? (()=>{ const e = measureForecast(p).eta;   // avance ou recule selon le temps ajouté
+          return `<span class="pl-due">🏁 ${e ? `Fin prévue : ${longDay(e)} · ${inDays(e)}` : "Ajoute ton temps pour voir la date de fin"}</span>`; })() : ""}
       </div>
       <div class="pl-btns">
-        <button class="iconbtn pl-edit" data-act="stats" aria-label="Évolution de l'objectif">📈</button>
+        ${ms?`<button class="iconbtn pl-edit" data-act="stats" aria-label="Évolution de l'objectif">📈</button>`:""}
         <button class="iconbtn pl-edit" data-act="edit" aria-label="Modifier l'objectif">✏️</button>
       </div>
-    </div>
-    <div class="prog"><div class="head"><span class="name">${progName}</span><span class="vals">${pctTxt}%</span></div>
+    </div>`;
+  if(!ms) return `<div class="card plan" data-id="${p.id}">${head}
+    <div class="small">📏 Touche ✏️ et indique le total à atteindre (ex : 5000 h) pour ajouter ton temps chaque jour.</div></div>`;
+  const u = escapeHtml(p.measure.unit), tot = measureTotal(p), T = p.measure.target, pct = Math.min(100, tot*100/T);
+  return `<div class="card plan${ok?" ok":""}" data-id="${p.id}">${head}
+    <div class="prog"><div class="head"><span class="name">${fmtQty(tot)} / ${fmtQty(T)} ${u}</span><span class="vals">${fmtPct(pct)}%</span></div>
       <div class="bar"><span style="width:${pct}%"></span></div></div>
-    ${ms ? `<div class="small pl-today">⏱️ Aujourd'hui : ${fmtQty(logOn(p,todayKey()))} ${u}${n?` · ${k}/${n} étape${n>1?"s":""}`:""}</div>
-    <div class="pl-log"><input data-act="qty" inputmode="decimal" placeholder="${u==="h"?"Heures faites aujourd'hui (ex : 2h30)":`Ajouter (${u}) pour aujourd'hui`}" aria-label="Quantité faite aujourd'hui" /><button data-act="log">＋ ${u}</button></div>` : ""}
-    ${p.actions.map(a=>`<div class="pl-act${a.done?" done":""}" data-aid="${a.id}">
-      <button class="pl-chk" data-act="tog" aria-label="${a.done?"Décocher":"Cocher"}">${a.done?"✓":""}</button>
-      <span class="pl-txt">${escapeHtml(a.text)}</span>
-      <button class="pl-x" data-act="rm" aria-label="Retirer l'action">×</button>
-    </div>`).join("")}
-    <div class="pl-add"><input data-act="new" placeholder="Ajouter une action…" /><button data-act="add">＋</button></div>
+    <div class="small pl-today">⏱️ Aujourd'hui : ${fmtQty(logOn(p,todayKey()))} ${u}</div>
+    <div class="pl-log"><input data-act="qty" inputmode="decimal" placeholder="${u==="h"?"Heures faites aujourd'hui (ex : 2h30)":`Ajouter (${u}) pour aujourd'hui`}" aria-label="Quantité faite aujourd'hui" /><button data-act="log">＋ ${u}</button></div>
   </div>`;
-}
-function addPlanAction(p, input){
-  const text = input.value.trim();
-  if(!text){ shake(input); return; }
-  p.actions.push({id:uid(), text, done:false, createdAt:todayISO(), doneAt:""});
-  p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
-  save(); renderPlans();
-  const again = $(`#plansList .plan[data-id="${p.id}"] [data-act="new"]`); if(again) again.focus();
 }
 // un seul écouteur pour toutes les cartes (elles sont redessinées à chaque changement)
 $("#plansList").addEventListener("click",e=>{
-  const btn = e.target.closest("[data-act]"); if(!btn || btn.dataset.act==="new" || btn.dataset.act==="qty") return;
+  const btn = e.target.closest("[data-act]"); if(!btn || btn.dataset.act==="qty") return;
   const card = btn.closest(".plan"); const p = card && (S.plans||[]).find(x=>x.id===card.dataset.id); if(!p) return;
-  const row = btn.closest(".pl-act"); const a = row && p.actions.find(x=>x.id===row.dataset.aid);
   if(btn.dataset.act==="edit")  return openPlanSheet(p.id);
   if(btn.dataset.act==="stats") return openPlanStats(p.id);
-  if(btn.dataset.act==="add")  return addPlanAction(p, card.querySelector('[data-act="new"]'));
   if(btn.dataset.act==="log"){
     const inp = card.querySelector('[data-act="qty"]'), v = parseQty(inp.value);
     if(!(v>0)){ shake(inp); return; }
-    return addMeasureLog(p, v, todayKey());
-  }
-  if(btn.dataset.act==="tog" && a){
-    const was = planDone(p);
-    a.done = !a.done;
-    a.doneAt = a.done ? todayISO() : "";
-    p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
-    save(); renderPlans();
-    if(!was && planDone(p)) toast("🎉 Objectif atteint !");
-  }
-  if(btn.dataset.act==="rm" && a){
-    p.actions = p.actions.filter(x=>x.id!==a.id);
-    p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
-    save(); renderPlans();
+    addMeasureLog(p, v, todayKey());
   }
 });
 $("#plansList").addEventListener("keydown",e=>{
-  if(e.key!=="Enter" || !["new","qty"].includes(e.target.dataset.act)) return;
+  if(e.key!=="Enter" || e.target.dataset.act!=="qty") return;
   const p = (S.plans||[]).find(x=>x.id===e.target.closest(".plan").dataset.id);
   if(!p) return;
-  if(e.target.dataset.act==="new") return addPlanAction(p, e.target);
   const v = parseQty(e.target.value);
   if(v>0) addMeasureLog(p, v, todayKey()); else shake(e.target);
 });
-/* ----- Évolution d'un objectif perso : courbe + valeurs clés ----- */
+/* ----- Évolution d'un objectif : courbe du total + prévision + journal ----- */
 const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const keyDate = k => { const [y,m,d] = k.split("-").map(Number); return new Date(y,m-1,d); };
 const shortDay = d => `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,4)}.`;
-let planChart = null;   // données de la courbe affichée (pour le survol)
-function planSeries(p){
-  const created = p.createdAt ? dayKey(new Date(p.createdAt)) : dayKey(new Date());
-  const doneKeys = stepsOf(p).filter(a=>a.done).map(a=>dayKey(new Date(a.doneAt || a.createdAt || p.createdAt || Date.now())));
-  const start = [created, ...doneKeys].sort()[0];
-  const today = dayKey(new Date());
-  const days = [];
-  for(let d = keyDate(start); dayKey(d) <= today; d.setDate(d.getDate()+1)) days.push(dayKey(d));
-  const done = days.map(k => doneKeys.filter(x=>x<=k).length);
-  return {days, done, total:stepsOf(p).length, today, start};
-}
 function openPlanStats(id){
-  const p = S.plans.find(x=>x.id===id); if(!p) return;
-  const s = planSeries(p), ms = hasMeasure(p);
-  const n = s.total, k = stepsOf(p).filter(a=>a.done).length, pct = n ? Math.round(k*100/n) : 0;
-  const elapsed = Math.max(1, Math.round((keyDate(s.today) - keyDate(s.start))/86400000) + 1);
-  const perWeek = k * 7 / elapsed;
-  const eta = planEta(p);
-  const doneList = stepsOf(p).filter(a=>a.done).sort((a,b)=>(b.doneAt||"").localeCompare(a.doneAt||""));
-  let measureHtml = "";
-  if(ms){
-    const u = escapeHtml(p.measure.unit), T = p.measure.target, f = measureForecast(p);
-    const last14 = [];
-    for(let i=13;i>=0;i--){ const d = new Date(); d.setDate(d.getDate()-i); last14.push({k:dayKey(d), v:logOn(p,dayKey(d))}); }
-    const max14 = Math.max(...last14.map(x=>x.v), 0);
-    const journal = (p.logs||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,30);
-    measureHtml = `<div class="kpis">
+  const p = S.plans.find(x=>x.id===id); if(!p || !hasMeasure(p)) return;
+  const u = escapeHtml(p.measure.unit), T = p.measure.target, f = measureForecast(p);
+  const start = [p.createdAt ? dayKey(new Date(p.createdAt)) : todayKey(), ...(p.logs||[]).map(l=>l.date)].sort()[0];
+  const elapsed = Math.max(1, Math.round((keyDate(todayKey()) - keyDate(start))/86400000) + 1);
+  const last14 = [];
+  for(let i=13;i>=0;i--){ const d = new Date(); d.setDate(d.getDate()-i); last14.push({k:dayKey(d), v:logOn(p,dayKey(d))}); }
+  const max14 = Math.max(...last14.map(x=>x.v), 0);
+  const journal = (p.logs||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,30);
+  openSheet(`
+    <h3>📈 Évolution — ${escapeHtml(p.title)}</h3>
+    <div class="small">Commencé le ${longDay(start)} · il y a ${elapsed} jour${elapsed>1?"s":""}</div>
+    <div style="height:12px;"></div>
+    <div class="kpis">
       <div class="kpi"><div class="k">Total</div><div class="v">${fmtQty(f.total)} ${u}</div><div class="h">sur ${fmtQty(T)} ${u} · ${fmtPct(Math.min(100,f.total*100/T))} %</div></div>
       <div class="kpi"><div class="k">Moyenne / jour</div><div class="v">${fmtQty(f.avg)} ${u}</div><div class="h">${f.win?`sur les ${f.win} derniers jours`:"pas encore de données"}</div></div>
       <div class="kpi"><div class="k">Fin prévue</div><div class="v">${f.eta ? longDay(f.eta) : "—"}</div><div class="h">${!f.eta ? "Ajoute ton temps pour l'estimer" : f.total>=T ? "objectif atteint" : inDays(f.eta)}</div></div>
@@ -1354,7 +1278,7 @@ function openPlanStats(id){
     <div class="chartwrap" id="msChartWrap"><canvas id="msChart"></canvas><div class="pl-tip" id="msTip"></div></div>
     <div class="chartlegend">
       <span class="cl"><i style="background:var(--green)"></i>Réalisé</span>
-      ${f.eta && f.total<T ? `<span class="cl"><i class="dash g"></i>Prévision</span>` : ""}
+      ${f.eta && f.total<T ? `<span class="cl"><i class="dash"></i>Prévision</span>` : ""}
     </div>
     <div class="section-title" style="margin-top:16px;">14 derniers jours</div>
     <div class="ms-bars" role="img" aria-label="${u} par jour sur les 14 derniers jours">
@@ -1365,112 +1289,18 @@ function openPlanStats(id){
     </div>
     <div class="section-title" style="margin-top:16px;">🗒️ Journal</div>
     ${journal.length ? journal.map(l=>`<div class="pl-hist"><span>${dayLabel(l.date)}</span><span class="ms-jr"><b>${fmtQty(l.amount)} ${u}</b><button class="pl-x" data-log="${l.id}" aria-label="Supprimer cet ajout">×</button></span></div>`).join("")
-      : `<div class="empty">Rien d'ajouté pour l'instant.</div>`}`;
-  }
-  openSheet(`
-    <h3>📈 Évolution — ${escapeHtml(p.title)}</h3>
-    <div class="small">Commencé le ${shortDay(keyDate(s.start))} ${s.start.slice(0,4)} · il y a ${elapsed} jour${elapsed>1?"s":""}</div>
-    <div style="height:12px;"></div>
-    ${measureHtml}
-    ${n ? `${ms ? `<div class="section-title" style="margin-top:16px;">Étapes</div>` : ""}
-    ${ms ? "" : `<div class="kpis">
-      <div class="kpi"><div class="k">Progression</div><div class="v">${pct} %</div><div class="h">${k}/${n} étape${n>1?"s":""} faite${k>1?"s":""}</div></div>
-      <div class="kpi"><div class="k">Rythme</div><div class="v">${perWeek.toLocaleString("fr-FR",{maximumFractionDigits:1})}</div><div class="h">étape${perWeek>=2?"s":""} / semaine</div></div>
-      <div class="kpi"><div class="k">Fin prévue</div><div class="v">${k===n ? "Atteint 🎉" : eta ? longDay(eta) : "—"}</div><div class="h">${k===n ? (p.doneAt?`le ${shortDay(new Date(p.doneAt))}`:"") : eta ? inDays(eta) : "Coche une étape pour l'estimer"}</div></div>
-      <div class="kpi"><div class="k">Reste</div><div class="v">${n-k} étape${n-k>1?"s":""}</div><div class="h">au rythme actuel</div></div>
-    </div>
-    <div class="section-title" style="margin-top:16px;">Étapes faites au fil du temps</div>`}
-    <div class="chartwrap" id="plChartWrap"><canvas id="plChart"></canvas><div class="pl-tip" id="plTip"></div></div>
-    <div class="section-title" style="margin-top:16px;">✅ Dernières étapes terminées</div>
-    ${doneList.length ? doneList.map(a=>`<div class="pl-hist"><span>${escapeHtml(a.text)}</span><span class="small">${a.doneAt?shortDay(new Date(a.doneAt))+" "+new Date(a.doneAt).getFullYear():"—"}</span></div>`).join("")
-      : `<div class="empty">Aucune étape cochée pour l'instant.</div>`}` : (ms ? "" : `<div class="empty">Ajoute des étapes à cet objectif pour suivre son évolution.</div>`)}
+      : `<div class="empty">Rien d'ajouté pour l'instant.</div>`}
   `);
-  if(ms){
-    $$("#sheetBody [data-log]").forEach(b=>b.addEventListener("click",()=>{
-      p.logs = p.logs.filter(l=>l.id!==b.dataset.log);
-      p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
-      save(); renderPlans();
-      const box = $("#sheet"), top = box.scrollTop; openPlanStats(p.id); box.scrollTop = top;
-      toast("Ajout supprimé");
-    }));
-    measureChart = measureSeries(p);
-    drawMeasureChart(); bindMeasureHover();
-  } else measureChart = null;
-  planChart = n ? {s} : null;
-  if(!n) return;
-  drawPlanChart();
-  const wrap = $("#plChartWrap");
-  const hover = e=>{
-    const c = planChart; if(!c || !c.x) return;
-    const r = wrap.getBoundingClientRect();
-    const i = Math.max(0, Math.min(c.s.days.length-1, Math.round(c.inv(e.clientX - r.left))));
-    const v = c.s.done[i];
-    drawPlanChart(i);
-    const tip = $("#plTip");
-    tip.innerHTML = `<b>${shortDay(keyDate(c.s.days[i]))}</b><br>${v}/${c.s.total} étape${c.s.total>1?"s":""} faite${v>1?"s":""}`;
-    tip.style.display = "block";
-    tip.style.left = Math.min(Math.max(c.x(i) - tip.offsetWidth/2, 0), r.width - tip.offsetWidth) + "px";
-  };
-  wrap.addEventListener("pointermove", hover);
-  wrap.addEventListener("pointerdown", hover);
-  wrap.addEventListener("pointerleave", ()=>{ $("#plTip").style.display="none"; drawPlanChart(); });
+  $$("#sheetBody [data-log]").forEach(b=>b.addEventListener("click",()=>{
+    p.logs = p.logs.filter(l=>l.id!==b.dataset.log);
+    p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
+    save(); renderPlans();
+    const box = $("#sheet"), top = box.scrollTop; openPlanStats(p.id); box.scrollTop = top;
+    toast("Ajout supprimé");
+  }));
+  measureChart = measureSeries(p);
+  drawMeasureChart(); bindMeasureHover();
 }
-/* courbe en escalier (canvas natif, comme les stats) ; hi = index survolé */
-function drawPlanChart(hi){
-  const cv = $("#plChart"); if(!cv || !planChart) return;
-  const {s} = planChart;
-  const box = cv.parentElement.getBoundingClientRect();
-  const W = Math.max(240, Math.round(box.width)), H = Math.round(box.height) || 190;
-  const dpr = window.devicePixelRatio || 1;
-  cv.width = W*dpr; cv.height = H*dpr;
-  const ctx = cv.getContext("2d");
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.clearRect(0,0,W,H);
-  const padL=28, padR=12, padT=12, padB=22;
-  const w = W-padL-padR, h = H-padT-padB;
-  const nd = s.days.length, max = Math.max(1, s.total);
-  const x = i => padL + (nd<=1 ? w/2 : i*w/(nd-1));
-  const y = v => padT + h - (v/max)*h;
-  planChart.x = x;
-  planChart.inv = px => nd<=1 ? 0 : (px - padL) * (nd-1) / w;
-
-  // grille + graduations entières
-  ctx.strokeStyle="#eef1f4"; ctx.lineWidth=1;
-  ctx.fillStyle="#7a8a99"; ctx.font="10px sans-serif"; ctx.textAlign="right"; ctx.textBaseline="middle";
-  const step = Math.max(1, Math.ceil(max/4));
-  for(let v=0; v<=max; v+=step){
-    ctx.beginPath(); ctx.moveTo(padL,y(v)); ctx.lineTo(W-padR,y(v)); ctx.stroke();
-    ctx.fillText(v, padL-6, y(v));
-  }
-  if(max % step){ ctx.beginPath(); ctx.moveTo(padL,y(max)); ctx.lineTo(W-padR,y(max)); ctx.stroke(); ctx.fillText(max, padL-6, y(max)); }
-  // dates : ~4 repères
-  ctx.textBaseline="top";
-  const ticks = nd<=1 ? [0] : [...new Set([0, Math.round((nd-1)/3), Math.round(2*(nd-1)/3), nd-1])];
-  ticks.forEach((i,j)=>{
-    ctx.textAlign = j===0 && ticks.length>1 ? "left" : j===ticks.length-1 && ticks.length>1 ? "right" : "center";
-    ctx.fillText(shortDay(keyDate(s.days[i])), x(i), padT+h+6);
-  });
-  // actions faites : escalier vert + zone légère
-  const last = s.done.reduce((a,v,i)=>v===null?a:i, 0);
-  const path = ()=>{
-    ctx.moveTo(x(0), y(s.done[0]));
-    for(let i=1;i<=last;i++){ ctx.lineTo(x(i), y(s.done[i-1])); ctx.lineTo(x(i), y(s.done[i])); }
-  };
-  const grad = ctx.createLinearGradient(0,padT,0,padT+h);
-  grad.addColorStop(0,"#0e9f6e33"); grad.addColorStop(1,"#0e9f6e00");
-  ctx.beginPath(); path(); ctx.lineTo(x(last), padT+h); ctx.lineTo(x(0), padT+h); ctx.closePath();
-  ctx.fillStyle=grad; ctx.fill();
-  ctx.beginPath(); path();
-  ctx.strokeStyle="#0e9f6e"; ctx.lineWidth=2; ctx.lineJoin="round"; ctx.lineCap="round"; ctx.stroke();
-  // point d'aujourd'hui (ou point survolé + repère vertical)
-  const dot = (i)=>{ ctx.beginPath(); ctx.arc(x(i),y(s.done[i]),4.5,0,Math.PI*2); ctx.fillStyle="#0e9f6e"; ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke(); };
-  if(hi!==undefined && s.done[hi]!==null){
-    ctx.strokeStyle="#cfd8e0"; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(x(hi),padT); ctx.lineTo(x(hi),padT+h); ctx.stroke();
-    dot(hi);
-  } else dot(last);
-}
-window.addEventListener("resize",()=>{ if($("#plChart")) drawPlanChart(); });
 /* courbe d'un objectif chiffré : total réalisé + prévision jusqu'à l'objectif */
 let measureChart = null;
 function measureSeries(p){
@@ -1573,7 +1403,7 @@ window.addEventListener("resize",()=>{ if($("#msChart")) drawMeasureChart(); });
 
 
 function openPlanSheet(id){
-  const p = id ? S.plans.find(x=>x.id===id) : {title:"",why:"",actions:[]};
+  const p = id ? S.plans.find(x=>x.id===id) : {title:"",why:""};
   const isNew = !id;
   openSheet(`
     <h3>${isNew?"🎯 Nouvel objectif":"Modifier l'objectif"}</h3>
@@ -1581,17 +1411,12 @@ function openPlanSheet(id){
     <input id="plTitle" value="${escapeHtml(p.title)}" placeholder="ex : Maîtriser la guitare" />
     <label class="fld">Pourquoi c'est important (optionnel)</label>
     <input id="plWhy" value="${escapeHtml(p.why||"")}" placeholder="ex : Jouer sur scène avec mes amis" />
-    <label class="fld">📏 Objectif chiffré (optionnel)</label>
+    <label class="fld">📏 Total à atteindre</label>
     <div class="pl-measure">
       <input id="plTarget" inputmode="decimal" value="${p.measure?fmtQty(p.measure.target).replace(/\s/g,""):""}" placeholder="ex : 5000" aria-label="Total à atteindre" />
       <input id="plUnit" value="${escapeHtml(p.measure?p.measure.unit:"h")}" placeholder="h" aria-label="Unité" />
     </div>
-    <div class="small" style="margin-top:6px;">Ex. 5000 h de pratique. Chaque jour tu ajoutes ton temps : la date de fin se calcule toute seule et se rapproche quand tu travailles plus.</div>
-    ${isNew?`<label class="fld">Étapes à faire (une par ligne, optionnel)</label>
-    <textarea id="plActsInput" class="pl-ta" placeholder="Acheter une guitare&#10;Apprendre les accords de base"></textarea>`:
-    (p.actions.length ? `<label class="fld">Étapes</label>
-    ${p.actions.map(a=>`<div class="pl-kindrow"><input class="pl-kindtxt" data-aid="${a.id}" value="${escapeHtml(a.text)}" aria-label="Texte de l'étape" /></div>`).join("")}` : "")
-    + `<div class="small" style="margin-top:10px;">Ajoute, coche ou retire les étapes directement sur la carte de l'objectif.</div>`}
+    <div class="small" style="margin-top:6px;">Chaque jour tu ajoutes ton temps : la date de fin se calcule toute seule et se rapproche quand tu travailles plus.</div>
     <div style="height:14px;"></div>
     <button class="btn" id="plSave">Enregistrer</button>
     ${isNew?"":`<div style="text-align:center;margin-top:12px;"><button class="danger-link" id="plDel">🗑 Supprimer l'objectif</button></div>`}
@@ -1600,23 +1425,13 @@ function openPlanSheet(id){
   $("#plSave").addEventListener("click",()=>{
     const title = $("#plTitle").value.trim();
     if(!title){ shake($("#plTitle")); return; }
-    const why = $("#plWhy").value.trim();
-    const tRaw = $("#plTarget").value.replace(/\s/g,""), target = tRaw ? parseQty(tRaw) : 0;
-    if(tRaw && !(target>0)){ shake($("#plTarget")); return; }
-    const measure = target>0 ? {target, unit:$("#plUnit").value.trim() || "h"} : null;
-    if(isNew){
-      const actions = $("#plActsInput").value.split("\n").map(x=>x.trim()).filter(Boolean)
-        .map(text=>({id:uid(), text, done:false, createdAt:todayISO(), doneAt:""}));
-      if(!actions.length && !measure){ shake($("#plTarget")); toast("Ajoute un objectif chiffré ou au moins une étape"); return; }
-      S.plans.push({id:uid(), title, why, actions, measure, logs:[], createdAt:todayISO(), doneAt:""});
-    }else{
-      p.title=title; p.why=why; p.measure=measure; p.logs = p.logs || [];
-      $$("#sheetBody .pl-kindtxt").forEach(inp=>{
-        const a = p.actions.find(x=>x.id===inp.dataset.aid), text = inp.value.trim();
-        if(a && text) a.text = text;
-      });
-      p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
-    }
+    const target = parseQty($("#plTarget").value.replace(/\s/g,""));
+    if(!(target>0)){ shake($("#plTarget")); return; }
+    const why = $("#plWhy").value.trim(), measure = {target, unit:$("#plUnit").value.trim() || "h"};
+    if(isNew) S.plans.push({id:uid(), title, why, measure, logs:[], createdAt:todayISO(), doneAt:""});
+    else { p.title=title; p.why=why; p.measure=measure; p.logs = p.logs || []; }
+    const q = isNew ? S.plans[S.plans.length-1] : p;
+    q.doneAt = planDone(q) ? (q.doneAt || todayISO()) : "";
     save(); closeSheet(); toast(isNew?"Objectif créé 🎯":"Objectif enregistré"); renderPlans();
   });
   if(!isNew) $("#plDel").addEventListener("click",()=>{

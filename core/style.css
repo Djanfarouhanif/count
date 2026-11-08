@@ -343,8 +343,6 @@
   .pl-title{font-weight:800;font-size:16px;}
   .pl-why{margin-top:3px;}
   .pl-due{display:inline-block;margin-top:7px;font-size:11px;font-weight:700;color:var(--muted);background:#eef1f4;border-radius:999px;padding:3px 9px;}
-  .pl-due.soon{color:#b45309;background:#fef3c7;}
-  .pl-due.late{color:var(--red);background:var(--red-soft);}
   .iconbtn.pl-edit{width:32px;height:32px;font-size:14px;}
   .plan .prog{margin-bottom:6px;}
   .plan.ok .pl-title{color:var(--green);}
@@ -380,7 +378,6 @@
   .pl-btns{display:flex;gap:6px;flex:0 0 auto;}
   .pl-tip{display:none;position:absolute;top:0;background:#16202a;color:#fff;font-size:12px;line-height:1.35;padding:6px 9px;border-radius:9px;pointer-events:none;white-space:nowrap;box-shadow:0 6px 14px rgba(0,0,0,.18);}
   .chartwrap:has(#plChart){touch-action:pan-y;}
-  .chartlegend i.dash{background:repeating-linear-gradient(90deg,#9aa8b5 0 5px,transparent 5px 9px);}
   .pl-hist{display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-top:1px solid var(--line);font-size:14px;}
   .pl-hist .small{flex:0 0 auto;}
   /* objectif chiffré */
@@ -388,38 +385,17 @@
   .pl-log input{flex:1;width:auto;min-width:0;padding:10px 12px;font-size:15px;}
   .pl-log button{flex:0 0 auto;border:0;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:14px;padding:0 14px;cursor:pointer;font-family:inherit;}
   .pl-measure{display:grid;grid-template-columns:1fr 96px;gap:8px;}
-  .chartlegend i.dash.g{background:repeating-linear-gradient(90deg,#0e9f6e 0 6px,transparent 6px 11px);opacity:.7;}
+  .chartlegend i.dash{background:repeating-linear-gradient(90deg,#0e9f6e 0 6px,transparent 6px 11px);opacity:.7;}
   .ms-bars{display:grid;grid-template-columns:repeat(14,1fr);gap:4px;align-items:end;}
   .ms-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px;height:96px;}
   .ms-v{font-size:9px;font-weight:700;color:var(--muted);white-space:nowrap;}
   .ms-b{width:100%;max-width:18px;background:var(--green);border-radius:4px 4px 0 0;}
   .ms-b.td{background:#0a7a54;}
   .ms-d{font-size:10px;color:var(--muted);}
-  .ms-add{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;}
-  .ms-add input{padding:10px;font-size:14px;min-width:0;}
   .ms-jr{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
   .pl-today{margin:-2px 0 8px;}
-  .pl-tag{display:block;font-size:11px;font-weight:700;color:var(--blue);margin-top:2px;text-decoration:none;}
-  .pl-act.done .pl-tag{color:var(--muted);}
-  .pl-kind{flex:0 0 auto;width:auto;padding:8px 8px;font-size:13px;border-radius:12px;}
   .pl-kindrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px;}
   .pl-kindtxt{flex:1;width:auto;min-width:0;padding:8px 10px;font-size:14px;border-radius:12px;}
-  .pl-week{display:grid;grid-template-columns:repeat(7,minmax(0,34px));gap:4px;margin-top:7px;}
-  .pl-d{height:38px;padding:0;border:0;border-radius:9px;background:#eef1f4;color:var(--muted);font-family:inherit;font-size:11px;font-weight:800;line-height:1.2;cursor:pointer;}
-  .pl-d i{display:block;font-style:normal;font-size:9px;font-weight:700;}
-  .pl-d.on{background:var(--green);color:#fff;}
-  .pl-d.td{box-shadow:inset 0 0 0 2px #9aa8b5;}
-  .pl-d.on.td{box-shadow:inset 0 0 0 2px #0a7a54;}
-  .pl-tag{display:inline-block;width:100%;}   /* inline-block : le texte barré ne déborde pas dessus */
-  .pl-week{display:inline-grid;width:100%;}
-  .pl-habit{padding:10px 0;border-top:1px solid var(--line);}
-  .pl-habit-top{display:flex;justify-content:space-between;gap:10px;font-size:14px;margin-bottom:8px;}
-  .pl-habit-top .small{flex:0 0 auto;}
-  .pl-days{display:grid;grid-template-columns:repeat(14,1fr);gap:4px;margin-bottom:6px;}
-  .pl-days button{height:26px;padding:0;border:0;border-radius:6px;background:#eef1f4;cursor:pointer;}
-  .pl-days button.on{background:var(--green);}
-  .pl-days button.td{box-shadow:inset 0 0 0 2px #9aa8b5;}
-  .pl-days button.on.td{box-shadow:inset 0 0 0 2px #0a7a54;}
 
   /* calendrier */
   .calnav{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);text-transform:capitalize;}

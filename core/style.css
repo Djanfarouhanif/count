@@ -375,6 +375,9 @@
   /* objectif chiffré */
   .pl-log{display:flex;gap:8px;margin:2px 0 10px;}
   .pl-log input{flex:1;width:auto;min-width:0;padding:10px 12px;font-size:15px;}
+  .pl-hm{flex:1;min-width:0;display:flex;align-items:center;gap:6px;}
+  .pl-hm input{text-align:center;}
+  .pl-hm span{font-size:13px;font-weight:700;color:var(--muted);}
   .pl-log button{flex:0 0 auto;border:0;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:14px;padding:0 14px;cursor:pointer;font-family:inherit;}
   .pl-measure{display:grid;grid-template-columns:1fr 96px;gap:8px;}
   .chartlegend i.dash{background:repeating-linear-gradient(90deg,#0e9f6e 0 6px,transparent 6px 11px);opacity:.7;}

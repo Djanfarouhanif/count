@@ -1152,6 +1152,12 @@ const measureTotal = p => (p.logs||[]).reduce((t,l)=>t+l.amount,0);
 const logOn        = (p,k) => (p.logs||[]).filter(l=>l.date===k).reduce((t,l)=>t+l.amount,0);
 const fmtQty = v => (Math.round(v*100)/100).toLocaleString("fr-FR",{maximumFractionDigits:2});
 const fmtPct = v => v>=10 || v===0 ? String(Math.floor(v)) : v.toLocaleString("fr-FR",{maximumFractionDigits:1});
+// quantité lisible : en heures « 2 h 40 min » plutôt que « 2,67 h »
+function fmtAmt(p, v){
+  if(p.measure.unit!=="h") return `${fmtQty(v)} ${escapeHtml(p.measure.unit)}`;
+  const t = Math.round(v*60), h = Math.floor(t/60), m = t%60;
+  return h && m ? `${h} h ${m} min` : h ? `${h} h` : `${m} min`;
+}
 // « 2,5 », « 2.5 », « 2h30 » ou « 2:30 » -> 2.5
 function parseQty(s){
   s = String(s||"").trim().replace(",",".");
@@ -1189,7 +1195,7 @@ function addMeasureLog(p, v, date){
   p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
   save(); renderPlans();
   const u = p.measure.unit;
-  toast(!was && planDone(p) ? "🎉 Objectif atteint !" : `+${fmtQty(v)} ${u} — total ${fmtQty(measureTotal(p))} ${u}`);
+  toast(!was && planDone(p) ? "🎉 Objectif atteint !" : `+${fmtAmt(p,v)} — total ${fmtAmt(p,measureTotal(p))}`);
 }
 
 function renderPlans(){
@@ -1228,8 +1234,13 @@ function planCard(p){
   return `<div class="card plan${ok?" ok":""}" data-id="${p.id}">${head}
     <div class="prog"><div class="head"><span class="name">${fmtQty(tot)} / ${fmtQty(T)} ${u}</span><span class="vals">${fmtPct(pct)}%</span></div>
       <div class="bar"><span style="width:${pct}%"></span></div></div>
-    <div class="small pl-today">⏱️ Aujourd'hui : ${fmtQty(logOn(p,todayKey()))} ${u}</div>
-    <div class="pl-log"><input data-act="qty" inputmode="decimal" placeholder="${u==="h"?"Heures faites aujourd'hui (ex : 2h30)":`Ajouter (${u}) pour aujourd'hui`}" aria-label="Quantité faite aujourd'hui" /><button data-act="log">＋ ${u}</button></div>
+    <div class="small pl-today">⏱️ Aujourd'hui : ${fmtAmt(p,logOn(p,todayKey()))}</div>
+    <div class="pl-log">${p.measure.unit==="h"
+      // en heures : deux cases chiffrées (le clavier du téléphone n'a pas « h » ni « : »)
+      ? `<label class="pl-hm"><input data-act="qty" data-part="h" inputmode="numeric" placeholder="0" aria-label="Heures faites aujourd'hui" /><span>h</span></label>
+         <label class="pl-hm"><input data-act="qty" data-part="m" inputmode="numeric" placeholder="0" aria-label="Minutes faites aujourd'hui" /><span>min</span></label>
+         <button data-act="log">＋ Ajouter</button>`
+      : `<input data-act="qty" inputmode="decimal" placeholder="Ajouter (${u}) pour aujourd'hui" aria-label="Quantité faite aujourd'hui" /><button data-act="log">＋ ${u}</button>`}</div>
   </div>`;
 }
 // un seul écouteur pour toutes les cartes (elles sont redessinées à chaque changement)
@@ -1238,19 +1249,24 @@ $("#plansList").addEventListener("click",e=>{
   const card = btn.closest(".plan"); const p = card && (S.plans||[]).find(x=>x.id===card.dataset.id); if(!p) return;
   if(btn.dataset.act==="edit")  return openPlanSheet(p.id);
   if(btn.dataset.act==="stats") return openPlanStats(p.id);
-  if(btn.dataset.act==="log"){
-    const inp = card.querySelector('[data-act="qty"]'), v = parseQty(inp.value);
-    if(!(v>0)){ shake(inp); return; }
-    addMeasureLog(p, v, todayKey());
-  }
+  if(btn.dataset.act==="log") logFromCard(p, card);
 });
 $("#plansList").addEventListener("keydown",e=>{
   if(e.key!=="Enter" || e.target.dataset.act!=="qty") return;
-  const p = (S.plans||[]).find(x=>x.id===e.target.closest(".plan").dataset.id);
-  if(!p) return;
-  const v = parseQty(e.target.value);
-  if(v>0) addMeasureLog(p, v, todayKey()); else shake(e.target);
+  const card = e.target.closest(".plan"), p = (S.plans||[]).find(x=>x.id===card.dataset.id);
+  if(p) logFromCard(p, card);
 });
+// lit la saisie de la carte : cases heures + minutes, ou une seule case pour les autres unités
+function logFromCard(p, card){
+  const hIn = card.querySelector('[data-part="h"]'), mIn = card.querySelector('[data-part="m"]');
+  let v;
+  if(hIn){
+    const h = hIn.value.trim() ? parseQty(hIn.value) : 0, m = mIn.value.trim() ? parseQty(mIn.value) : 0;
+    v = h>=0 && m>=0 ? h + m/60 : NaN;
+  } else v = parseQty(card.querySelector('[data-act="qty"]').value);
+  if(!(v>0)){ shake(card.querySelector(".pl-log")); return; }
+  addMeasureLog(p, v, todayKey());
+}
 /* ----- Évolution d'un objectif : courbe du total + prévision + journal ----- */
 const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const keyDate = k => { const [y,m,d] = k.split("-").map(Number); return new Date(y,m-1,d); };
@@ -1288,7 +1304,7 @@ function openPlanStats(id){
         <span class="ms-d">${keyDate(x.k).getDate()}</span></div>`).join("")}
     </div>
     <div class="section-title" style="margin-top:16px;">🗒️ Journal</div>
-    ${journal.length ? journal.map(l=>`<div class="pl-hist"><span>${dayLabel(l.date)}</span><span class="ms-jr"><b>${fmtQty(l.amount)} ${u}</b><button class="pl-x" data-log="${l.id}" aria-label="Supprimer cet ajout">×</button></span></div>`).join("")
+    ${journal.length ? journal.map(l=>`<div class="pl-hist"><span>${dayLabel(l.date)}</span><span class="ms-jr"><b>${fmtAmt(p,l.amount)}</b><button class="pl-x" data-log="${l.id}" aria-label="Supprimer cet ajout">×</button></span></div>`).join("")
       : `<div class="empty">Rien d'ajouté pour l'instant.</div>`}
   `);
   $$("#sheetBody [data-log]").forEach(b=>b.addEventListener("click",()=>{

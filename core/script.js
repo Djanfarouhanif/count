@@ -1267,7 +1267,7 @@ function logFromCard(p, card){
   if(!(v>0)){ shake(card.querySelector(".pl-log")); return; }
   addMeasureLog(p, v, todayKey());
 }
-/* ----- Évolution d'un objectif : courbe du total + prévision + journal ----- */
+/* ----- Évolution d'un objectif : courbe du total + prévision ----- */
 const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const keyDate = k => { const [y,m,d] = k.split("-").map(Number); return new Date(y,m-1,d); };
 const shortDay = d => `${d.getDate()} ${MONTHS[d.getMonth()].slice(0,4)}.`;
@@ -1279,7 +1279,6 @@ function openPlanStats(id){
   const last14 = [];
   for(let i=13;i>=0;i--){ const d = new Date(); d.setDate(d.getDate()-i); last14.push({k:dayKey(d), v:logOn(p,dayKey(d))}); }
   const max14 = Math.max(...last14.map(x=>x.v), 0);
-  const journal = (p.logs||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,30);
   openSheet(`
     <h3>📈 Évolution — ${escapeHtml(p.title)}</h3>
     <div class="small">Commencé le ${longDay(start)} · il y a ${elapsed} jour${elapsed>1?"s":""}</div>
@@ -1303,17 +1302,7 @@ function openPlanStats(id){
         <span class="ms-b${x.k===todayKey()?" td":""}" style="height:${max14 ? Math.max(x.v?4:0, Math.round(x.v*60/max14)) : 0}px"></span>
         <span class="ms-d">${keyDate(x.k).getDate()}</span></div>`).join("")}
     </div>
-    <div class="section-title" style="margin-top:16px;">🗒️ Journal</div>
-    ${journal.length ? journal.map(l=>`<div class="pl-hist"><span>${dayLabel(l.date)}</span><span class="ms-jr"><b>${fmtAmt(p,l.amount)}</b><button class="pl-x" data-log="${l.id}" aria-label="Supprimer cet ajout">×</button></span></div>`).join("")
-      : `<div class="empty">Rien d'ajouté pour l'instant.</div>`}
   `);
-  $$("#sheetBody [data-log]").forEach(b=>b.addEventListener("click",()=>{
-    p.logs = p.logs.filter(l=>l.id!==b.dataset.log);
-    p.doneAt = planDone(p) ? (p.doneAt || todayISO()) : "";
-    save(); renderPlans();
-    const box = $("#sheet"), top = box.scrollTop; openPlanStats(p.id); box.scrollTop = top;
-    toast("Ajout supprimé");
-  }));
   measureChart = measureSeries(p);
   drawMeasureChart(); bindMeasureHover();
 }

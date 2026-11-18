@@ -133,67 +133,148 @@ function debtLabel(d){
 /* ----- Cache local (hors-ligne) ----- */
 function lsRead(){ try{ const r=localStorage.getItem(LS_KEY); return r?JSON.parse(r):null; }catch(e){ return null; } }
 function lsWrite(d){ try{ localStorage.setItem(LS_KEY, JSON.stringify(d)); }catch(e){} }
+/* Synchro entre appareils.
+   base  = version du serveur (son updatedAt) sur laquelle sont basées les données de cet appareil.
+   dirty = cet appareil a des changements pas encore envoyés.
+   Le serveur n'accepte un envoi que si base == sa version actuelle : un appareil resté sur
+   d'anciennes données (onglet oublié ouvert) ne peut plus écraser ce qu'un autre a ajouté.
+   En cas de conflit, on demande quelle version garder (voir handleConflict). */
+const SYNC_KEY = "monbudget_sync_v1";
+let base = "";
+let conflictOpen = false;
+function metaRead(){ try{ return JSON.parse(localStorage.getItem(SYNC_KEY)) || null; }catch(e){ return null; } }
+function metaWrite(){ try{ localStorage.setItem(SYNC_KEY, JSON.stringify({base, dirty})); }catch(e){} }
 
 async function fetchServer(){
   try{ const res=await fetch(API,{cache:"no-store"}); if(!res.ok) throw 0; return await res.json(); }
   catch(e){ return undefined; } // undefined = serveur injoignable (hors-ligne)
 }
-async function pushToServer(data){
+// envoie les données ; un seul envoi à la fois, on renvoie tant qu'il reste des changements
+let pushing = false, saveSeq = 0;   // saveSeq : numéro du dernier enregistrement local
+async function pushToServer(){
+  if(pushing) return;
+  pushing = true;
   try{
-    const res=await fetch(API,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
-    if(!res.ok) throw 0;
-    online=true; dirty=false;
-  }catch(e){ online=false; dirty=true; }
-  updateSyncBadge();
+    while(dirty && !conflictOpen){
+      const ver = S.updatedAt, seq = saveSeq, body = JSON.stringify(S);
+      let res;
+      try{ res = await fetch(API,{method:"PUT",headers:{"Content-Type":"application/json","X-Base-Version":base},body}); }
+      catch(e){ online=false; break; }
+      online = true;
+      if(res.status===409){ handleConflict((await res.json()).data); break; }
+      if(!res.ok){ online=false; break; }
+      base = ver;
+      if(saveSeq===seq) dirty = false;   // sinon : modifié pendant l'envoi -> on renvoie
+      metaWrite();
+    }
+  } finally { pushing = false; updateSyncBadge(); }
 }
 
-// Lecture : combine cache local + serveur ; le plus récent gagne. Marche hors-ligne.
+// Lecture au démarrage : cache local + serveur. Marche hors-ligne.
+let pendingConflict = null;   // conflit trouvé au démarrage, montré une fois l'app affichée
 async function load(){
-  const local  = lsRead();
+  const local  = lsRead(), meta = metaRead();
   const server = await fetchServer();
   let chosen;
   if(server !== undefined){
     online = true;
-    if(local && (local.updatedAt||"") > (server.updatedAt||"")){
-      chosen = local; pushToServer(local);   // le local est plus récent -> on le pousse
+    const sv = server.updatedAt || "";
+    // changements locaux non envoyés (ou ancien cache plus récent que le serveur, d'avant cette version)
+    const unsent = local && (meta ? meta.dirty : (local.updatedAt||"") > sv);
+    if(unsent && meta && meta.base===sv){
+      chosen = local; base = sv; dirty = true;             // personne d'autre n'a écrit : on envoie
+    } else if(unsent){
+      chosen = local; base = meta ? meta.base : ""; dirty = true;
+      pendingConflict = server;                            // les deux ont changé : on demandera
     } else {
-      chosen = server; dirty = false;
+      chosen = server; base = sv; dirty = false;
     }
   } else {
     online = false;
     chosen = local || freshState();
-    if(local) dirty = true;                   // données locales potentiellement non synchronisées
+    base = meta ? meta.base : ""; dirty = meta ? meta.dirty : false;
   }
   dataLoaded = true;
   const norm = normalize(chosen);
-  lsWrite(norm);
+  lsWrite(norm); metaWrite();
   updateSyncBadge();
   return norm;
 }
 
-// Écriture : TOUJOURS en local (hors-ligne OK), puis tentative vers le serveur.
+// Écriture : TOUJOURS en local (hors-ligne OK), puis envoi au serveur.
 async function save(){
-  S.updatedAt = new Date().toISOString();
-  lsWrite(S);
-  await pushToServer(S);
+  // version toujours croissante, même pour deux enregistrements dans la même milliseconde
+  let t = Date.now();
+  if(S.updatedAt && t <= Date.parse(S.updatedAt)) t = Date.parse(S.updatedAt) + 1;
+  S.updatedAt = new Date(t).toISOString();
+  saveSeq++;
+  dirty = true;
+  lsWrite(S); metaWrite();
+  await pushToServer();
 }
 
-// Synchronisation (au retour de connexion) : le plus récent gagne.
+// prend la version du serveur (les données venues d'un autre appareil)
+function adoptServer(server){
+  S = normalize(server); base = server.updatedAt || ""; dirty = false;
+  lsWrite(S); metaWrite();
+  renderAll(); updateSyncBadge();
+}
+
+// Relit le serveur : au retour sur l'app, au retour de connexion, et chaque minute.
 async function syncNow(){
+  if(pushing || conflictOpen || !dataLoaded || !S) return;
   const server = await fetchServer();
   if(server === undefined){ online=false; updateSyncBadge(); return; }
   online = true;
-  if((server.updatedAt||"") > (S.updatedAt||"")){
-    S = normalize(server); lsWrite(S); dirty=false; renderAll();  // le serveur est plus récent
-  } else if(dirty || (S.updatedAt||"") > (server.updatedAt||"")){
-    await pushToServer(S);                                        // le local est plus récent
-  } else {
-    dirty=false;
+  const sv = server.updatedAt || "";
+  if(sv === base){ if(dirty) await pushToServer(); }
+  else if(!dirty){
+    if(!sheetLocked) closeSheet();   // une fiche ouverte porterait sur les anciennes données
+    adoptServer(server);
+    toast("🔄 Données mises à jour depuis un autre appareil");
   }
+  else handleConflict(server);
   updateSyncBadge();
 }
 window.addEventListener("online", ()=>{ toast("Connexion retrouvée — synchronisation…"); syncNow(); });
 window.addEventListener("offline", ()=>{ online=false; updateSyncBadge(); });
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) syncNow(); });
+window.addEventListener("focus", ()=>syncNow());
+setInterval(()=>{ if(!document.hidden) syncNow(); }, 60000);
+
+// Conflit : cet appareil ET un autre ont modifié les données. Rien n'est écrasé sans ton choix.
+function handleConflict(server){
+  if(conflictOpen) return;
+  conflictOpen = true;
+  const mine = JSON.parse(JSON.stringify(S));
+  const when = iso => iso ? new Date(iso).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : "—";
+  openSheet(`
+    <h3>⚠️ Données modifiées sur un autre appareil</h3>
+    <div class="small">Pendant que cet appareil était sur une ancienne version, tes données ont été modifiées ailleurs. Pour ne rien perdre par erreur, choisis la version à garder.</div>
+    <div class="kpis" style="margin-top:12px;">
+      <div class="kpi"><div class="k">Autre appareil</div><div class="v" style="font-size:14px;">${when(server.updatedAt)}</div><div class="h">version enregistrée sur le serveur</div></div>
+      <div class="kpi"><div class="k">Cet appareil</div><div class="v" style="font-size:14px;">${when(mine.updatedAt)}</div><div class="h">dernière modification ici</div></div>
+    </div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="cfServer">Utiliser la version de l'autre appareil</button>
+    <div class="small" style="margin-top:6px;">Recommandé : tu retrouves tout ce qui a été ajouté ailleurs. Ta dernière action ici n'est pas gardée.</div>
+    <div style="height:12px;"></div>
+    <button class="btn ghost" id="cfSave">💾 Télécharger d'abord la version de cet appareil</button>
+    <div style="text-align:center;margin-top:14px;"><button class="danger-link" id="cfMine">Garder cet appareil et remplacer l'autre version</button></div>
+  `);
+  sheetLocked = true;
+  const done = ()=>{ sheetLocked = false; conflictOpen = false; closeSheet(); };
+  $("#cfServer").addEventListener("click",()=>{ done(); adoptServer(server); toast("Version de l'autre appareil chargée ✅"); });
+  $("#cfSave").addEventListener("click",()=>{
+    const {pin, ...data} = mine;
+    downloadFile(`mon-budget-cet-appareil-${todayDate()}.json`, JSON.stringify(data, null, 2), "application/json");
+    toast("Copie de cet appareil téléchargée ✅");
+  });
+  $("#cfMine").addEventListener("click",()=>{
+    done(); base = server.updatedAt || ""; dirty = true; metaWrite();
+    pushToServer(); toast("Cet appareil a remplacé l'autre version");
+  });
+}
 
 // Petit indicateur d'état (en ligne / hors-ligne / à synchroniser)
 function updateSyncBadge(){
@@ -1941,7 +2022,8 @@ function openSheet(html){
   $("#sheetBg").classList.add("show");
 }
 function closeSheet(){ $("#sheet").style.display="none"; $("#sheetBg").classList.remove("show"); }
-$("#sheetBg").addEventListener("click",closeSheet);
+let sheetLocked = false;   // fiche de conflit : il faut choisir, pas de fermeture en touchant le fond
+$("#sheetBg").addEventListener("click",()=>{ if(!sheetLocked) closeSheet(); });
 
 function openTxSheet(id){
   const t=S.tx.find(x=>x.id===id); if(!t)return;
@@ -2132,10 +2214,69 @@ $("#exportBtn").addEventListener("click",()=>{
     <div style="height:16px;"></div>
     <button class="btn ghost" id="expCsv">Tous les mouvements (.csv / Excel)</button>
     <div class="small" style="margin-top:6px;">Revenus, dépenses et épargne de tous les mois, à ouvrir dans Excel ou Google Sheets.</div>
+    <div class="section-title" style="margin-top:20px;">♻️ Restaurer</div>
+    <button class="btn ghost" id="impJson">📥 Importer une sauvegarde (.json)</button>
+    <div style="height:10px;"></div>
+    <button class="btn ghost" id="bkList">🕘 Versions précédentes (sur le serveur)</button>
+    <div class="small" style="margin-top:6px;">Le serveur garde l'état de tes données heure par heure (les 72 dernières).</div>
   `);
   $("#expJson").addEventListener("click",()=>{ exportJSON(); toast("Sauvegarde téléchargée ✅"); });
   $("#expCsv").addEventListener("click",()=>{ exportCSV(); toast("Fichier CSV téléchargé ✅"); });
+  $("#impJson").addEventListener("click",()=>{
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".json,application/json";
+    inp.addEventListener("change",()=>{
+      const f = inp.files[0]; if(!f) return;
+      const r = new FileReader();
+      r.onload = ()=>{
+        let d; try{ d = JSON.parse(r.result); }catch(e){ d = null; }
+        if(!d || !Array.isArray(d.tx) || !Array.isArray(d.income)){ toast("Ce fichier n'est pas une sauvegarde de l'app"); return; }
+        confirmRestore(d, `le fichier « ${escapeHtml(f.name)} »`);
+      };
+      r.readAsText(f);
+    });
+    inp.click();
+  });
+  $("#bkList").addEventListener("click", openBackups);
 });
+// remplace toutes les données par une sauvegarde (le code de sécurité actuel est gardé)
+function confirmRestore(d, from){
+  const nMv = (d.income||[]).length + (d.tx||[]).length + (d.savings||[]).length;
+  const when = d.updatedAt ? new Date(d.updatedAt).toLocaleString("fr-FR",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "date inconnue";
+  openSheet(`
+    <h3>♻️ Restaurer cette version ?</h3>
+    <div class="small">Depuis ${from} — enregistrée le <b>${when}</b> : ${nMv} mouvement${nMv>1?"s":""}, ${(d.plans||[]).length} objectif${(d.plans||[]).length>1?"s":""} perso, ${(d.notes||[]).length} post-it.</div>
+    <div class="small" style="margin-top:8px;">Toutes tes données actuelles seront remplacées, sur tous tes appareils. Pense à télécharger d'abord une sauvegarde (💾).</div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="rsOk">Restaurer</button>
+    <div style="text-align:center;margin-top:12px;"><button class="linkbtn" id="rsNo">Annuler</button></div>
+  `);
+  $("#rsNo").addEventListener("click", closeSheet);
+  $("#rsOk").addEventListener("click",()=>{
+    const pin = S.pin;
+    S = normalize(JSON.parse(JSON.stringify(d))); S.pin = pin;
+    save(); closeSheet(); renderAll(); toast("Données restaurées ✅");
+  });
+}
+async function openBackups(){
+  openSheet(`<h3>🕘 Versions précédentes</h3><div class="empty">Chargement…</div>`);
+  let keys;
+  try{ const res = await fetch(API+"?backups=1",{cache:"no-store"}); if(!res.ok) throw 0; keys = await res.json(); }
+  catch(e){ $("#sheetBody").innerHTML = `<h3>🕘 Versions précédentes</h3><div class="empty">Impossible de joindre le serveur. Réessaie avec Internet.</div>`; return; }
+  const label = k => new Date(k.slice(8)+":00:00Z").toLocaleString("fr-FR",{weekday:"short",day:"numeric",month:"short",hour:"2-digit"}).replace(/ (\d+)$/," $1 h");
+  $("#sheetBody").innerHTML = `<h3>🕘 Versions précédentes</h3>
+    <div class="small">L'état de tes données au début de chaque heure où tu as fait des changements. Touche une version pour la voir et la restaurer.</div>
+    <div style="height:10px;"></div>
+    ${keys.length ? keys.map(k=>`<button class="bk-row" data-k="${escapeHtml(k)}"><span>${label(k)}</span><span class="small">Voir ›</span></button>`).join("")
+      : `<div class="empty">Aucune version précédente pour l'instant. Elles s'accumulent au fil de tes modifications.</div>`}`;
+  $$("#sheetBody .bk-row").forEach(b=>b.addEventListener("click", async ()=>{
+    try{
+      const res = await fetch(API+"?backup="+encodeURIComponent(b.dataset.k),{cache:"no-store"});
+      if(!res.ok) throw 0;
+      confirmRestore(await res.json(), "le serveur");
+    }catch(e){ toast("Impossible de charger cette version"); }
+  }));
+}
 
 /* ----- Salaire mensuel : espace dédié ----- */
 function applySalaire(newSal){
@@ -2434,7 +2575,8 @@ $("#lockBtn").addEventListener("click",()=>{
   S = await load();   // marche même hors-ligne (cache local)
   // attention : pas de court-circuit, les deux doivent tourner
   const salOk = ensureSalary(), recOk = ensureRecurrents();
-  if(salOk || recOk || needsSave) save();   // salaire + dépenses récurrentes + migrations
+  if(pendingConflict){ handleConflict(pendingConflict); pendingConflict = null; }
+  else if(salOk || recOk || needsSave) save();   // salaire + dépenses récurrentes + migrations
   renderCatGrid();
   if(S.pin && S.pin.length){
     showLock("enter");         // un code existe -> on le demande

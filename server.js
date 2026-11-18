@@ -3,8 +3,11 @@
    Mini-serveur Node — sans aucune dépendance (modules natifs)
    - Sert les fichiers statiques de  ./core  (index.html, css, js)
    - Expose une API JSON pour centraliser TOUTES les données :
-       GET  /api/data   -> renvoie le contenu de data.json
-       PUT  /api/data   -> écrase data.json avec le corps reçu
+       GET  /api/data              -> renvoie le contenu de data.json
+       GET  /api/data?backups=1    -> liste des versions précédentes (une par heure)
+       GET  /api/data?backup=<clé> -> une version précédente
+       PUT  /api/data              -> enregistre, SEULEMENT si l'appareil partait de la
+                                      version actuelle (en-tête X-Base-Version), sinon 409
    Lancement :  node server.js   (puis http://localhost:3000)
 ============================================================ */
 const http = require("http");
@@ -14,6 +17,8 @@ const path = require("path");
 const ROOT       = __dirname;
 const STATIC_DIR = path.join(ROOT, "core");
 const DATA_FILE  = path.join(ROOT, "data.json");
+const BACKUP_DIR = path.join(ROOT, "backups");   // versions précédentes (une par heure)
+const MAX_BACKUPS = 72;
 const PORT       = process.env.PORT || 3000;
 
 /* Données initiales si data.json n'existe pas encore (1er lancement).
@@ -71,9 +76,22 @@ function sendJson(res, code, obj) {
 
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split("?")[0]);
+  const query = new URL(req.url, "http://localhost").searchParams;
 
   /* ---------- API : /api/data ---------- */
   if (url === "/api/data") {
+    if (req.method === "GET" && query.has("backups")) {
+      const keys = fs.existsSync(BACKUP_DIR) ? fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith(".json")) : [];
+      return sendJson(res, 200, keys.map(f => "backups/" + f.slice(0, -5)).sort().reverse());
+    }
+    if (req.method === "GET" && query.has("backup")) {
+      const name = (query.get("backup") || "").replace(/^backups\//, "");
+      if (!/^[\dT-]+$/.test(name)) return sendJson(res, 400, { error: "clé invalide" });
+      const file = path.join(BACKUP_DIR, name + ".json");
+      if (!fs.existsSync(file)) return sendJson(res, 404, { error: "introuvable" });
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      return res.end(fs.readFileSync(file, "utf8"));
+    }
     if (req.method === "GET") {
       ensureData();
       fs.readFile(DATA_FILE, "utf8", (err, txt) => {
@@ -90,9 +108,26 @@ const server = http.createServer((req, res) => {
         if (body.length > 5_000_000) req.destroy(); // garde-fou 5 Mo
       });
       req.on("end", () => {
+        // une ancienne version de l'app (sans en-tête) ne doit plus pouvoir écraser les données
+        const base = req.headers["x-base-version"];
+        if (base === undefined) return sendJson(res, 428, { error: "app à recharger" });
         let data;
         try { data = JSON.parse(body); }
         catch (e) { return sendJson(res, 400, { error: "JSON invalide" }); }
+        let current = null;
+        try { current = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch (e) {}
+        if (current && (current.updatedAt || "") !== base) {
+          return sendJson(res, 409, { conflict: true, data: current });
+        }
+        if (current && current.updatedAt) {
+          fs.mkdirSync(BACKUP_DIR, { recursive: true });
+          const file = path.join(BACKUP_DIR, current.updatedAt.slice(0, 13) + ".json");
+          if (!fs.existsSync(file)) {
+            fs.writeFileSync(file, JSON.stringify(current), "utf8");
+            const all = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith(".json")).sort();
+            all.slice(0, Math.max(0, all.length - MAX_BACKUPS)).forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f)));
+          }
+        }
         fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf8", err => {
           if (err) return sendJson(res, 500, { error: "écriture impossible" });
           sendJson(res, 200, { ok: true });

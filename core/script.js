@@ -1888,20 +1888,31 @@ function renderRescue(cur, jours, dsMois, depMois, parJour, projec){
   const untilLbl = `${RESCUE_NEXT_DAYS} ${MONTHS[until.getMonth()]}`;
   const left  = dsMois - jours + RESCUE_NEXT_DAYS;     // jours restants (fin du mois + 10 jours)
   const dispo = soldeGlobal();                         // argent disponible maintenant
-  const reste = Math.round(depMois/jours*left);        // dépenses prévues d'ici le 10 du mois suivant
+
+  /* --- dépenses quotidiennes : catégories où l'on dépense au moins 4 jours différents ce mois-ci
+     (2 jours en tout début de mois). Les dépenses ponctuelles (loyer, gros achat…) sont déjà
+     sorties de l'argent disponible : on ne les prolonge pas sur les jours restants. --- */
+  const RESCUE_MIN_DAYS = Math.min(4, Math.max(2, jours));
+  const byCat = {};
+  txOfMonth(cur).forEach(t=>{
+    const r = byCat[t.catId] || (byCat[t.catId] = {v:0, days:new Set()});
+    r.v += t.amount; r.days.add(t.date.slice(0,10));
+  });
+  const all = Object.entries(byCat).map(([id, o])=>({c:catById(id), v:o.v, daily:o.days.size>=RESCUE_MIN_DAYS}));
+  const oneOff = all.filter(r=>!r.daily);
+  const rows = all.filter(r=>r.daily).map(r=>{
+    const rate = r.v/jours;
+    return {c:r.c, rate, rem: rate*left, cut: 0};
+  });
+  const dailyRate = rows.reduce((a,r)=>a+r.rate, 0);   // rythme des dépenses quotidiennes / jour
+  const reste = Math.round(dailyRate*left);            // dépenses quotidiennes prévues d'ici le 10
   if(reste <= dispo){ box.innerHTML = ""; return; }
 
   const manque = reste - Math.max(0, dispo);           // ce qui manquerait au rythme actuel
   const perDay = left>0 ? Math.floor(Math.max(0, dispo)/left) : 0;
-  const effort = parJour ? Math.min(100, Math.round((1 - perDay/parJour)*100)) : 0;
+  const effort = dailyRate ? Math.min(100, Math.round((1 - perDay/dailyRate)*100)) : 0;
 
-  /* --- où réduire : rythme de chaque catégorie ce mois-ci, prolongé sur les jours restants --- */
-  const byCat = {};
-  txOfMonth(cur).forEach(t=>{ byCat[t.catId] = (byCat[t.catId]||0) + t.amount; });
-  const rows = Object.entries(byCat).map(([id, v])=>{
-    const c = catById(id), rate = v/jours;
-    return {c, rate, rem: rate*left, cut: 0};
-  }).filter(r=>r.rem>0);
+  /* --- où réduire : uniquement les dépenses quotidiennes --- */
   let need = Math.min(manque, rows.reduce((a,r)=>a+r.rem, 0));
   // 1) loisirs d'abord : jusqu'à 60 % de ce qui est prévu
   const fun = rows.filter(r=>r.c.bucket!=="besoins");
@@ -1927,13 +1938,13 @@ function renderRescue(cur, jours, dsMois, depMois, parJour, projec){
   box.innerHTML = `<div class="card rescue">
     <div class="section-title">🚨 Éviter le découvert</div>
     <div class="alert bad"><span class="ico">⚠️</span><div>${dispo<0
-      ? `Tu es déjà à découvert de <span class="amt">${fmtF(-dispo)}</span>.${reste?` Au rythme actuel, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici le ${untilLbl}.`:""}`
-      : `Au rythme actuel, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici le ${untilLbl}, mais il ne te reste que <span class="amt">${fmtF(dispo)}</span>. Il manquerait <span class="amt">${fmtF(manque)}</span>.`}</div></div>
+      ? `Tu es déjà à découvert de <span class="amt">${fmtF(-dispo)}</span>.${reste?` Au rythme de tes dépenses quotidiennes, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici le ${untilLbl}.`:""}`
+      : `Au rythme de tes dépenses quotidiennes, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici le ${untilLbl}, mais il ne te reste que <span class="amt">${fmtF(dispo)}</span>. Il manquerait <span class="amt">${fmtF(manque)}</span>.`}</div></div>
 
     ${left>0 ? `<div class="rs-goal">
       <div class="rs-k">Pour tenir sans découvert jusqu'au ${untilLbl}</div>
       <div class="rs-v">${dispo>0 ? `${fmtF(perDay)} <small>max / jour</small>` : `0 FCFA <small>de dépense en plus</small>`}</div>
-      <div class="rs-h">pendant ${left} jour${left>1?"s":""} · aujourd'hui tu es à ${fmtF(parJour)} / jour${effort>0?` (−${effort} %)`:""}</div>
+      <div class="rs-h">pendant ${left} jour${left>1?"s":""} · tes dépenses quotidiennes : ${fmtF(dailyRate)} / jour${effort>0?` (−${effort} %)`:""}</div>
     </div>` : ""}
 
     ${cuts.length ? `<div class="rs-sub">Où réduire</div>
@@ -1941,7 +1952,8 @@ function renderRescue(cur, jours, dsMois, depMois, parJour, projec){
         const max = Math.max(0, Math.floor((r.rem-r.cut)/left));
         return line(`${r.c.icon} ${r.c.name}<div class="rs-sm">max ${fmt(max)} / jour au lieu de ${fmt(r.rate)}</div>`,
                     `<span style="color:var(--green)">−${fmt(r.cut)}</span>`);
-      }).join("")}` : ""}
+      }).join("")}
+      ${oneOff.length ? `<div class="rs-sm" style="margin-top:6px">Dépenses ponctuelles non comptées : ${oneOff.map(r=>`${r.c.icon} ${r.c.name}`).join(", ")}</div>` : ""}` : ""}
 
     ${extra.length ? `<div class="rs-sub">Argent que tu peux récupérer</div>
       ${extra.map(([i,k,v])=>line(`${i} ${k}`, fmt(v))).join("")}` : ""}

@@ -387,9 +387,6 @@
   .ms-b{width:100%;max-width:18px;background:var(--green);border-radius:4px 4px 0 0;}
   .ms-b.td{background:#0a7a54;}
   .ms-d{font-size:10px;color:var(--muted);}
-  /* 💾 versions précédentes */
-  .bk-row{display:flex;justify-content:space-between;align-items:center;width:100%;padding:12px 4px;border:0;border-top:1px solid var(--line);background:none;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer;text-align:left;}
-  .bk-row:first-of-type{border-top:0;}
   .pl-today{margin:-2px 0 8px;}
 
   /* calendrier */

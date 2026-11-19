@@ -1876,14 +1876,19 @@ function renderStats(){
   }).join("") : `<div class="empty">Aucun mouvement sur cette période.</div>`;
 }
 
-/* Plan anti-découvert : la projection de fin de mois dépasse l'argent disponible ?
-   On montre combien il manque, le plafond de dépense par jour pour tenir jusqu'à la fin
-   du mois, où réduire (catégories du mois, loisirs d'abord) et l'argent mobilisable. */
+/* Plan anti-découvert : les dépenses prévues jusqu'au 10 du mois suivant (au rythme du
+   mois en cours) dépassent l'argent disponible ? On montre combien il manque, le plafond
+   de dépense par jour pour tenir jusqu'au 10, où réduire (loisirs d'abord) et l'argent
+   prêté à récupérer. L'épargne n'est pas proposée. */
 function renderRescue(cur, jours, dsMois, depMois, parJour, projec){
   const box = $("#statsRescue"); if(!box) return;
-  const left  = dsMois - jours;                       // jours restants après aujourd'hui
+  const RESCUE_NEXT_DAYS = 10;                         // on doit tenir jusqu'au 10 du mois suivant
+  const now   = new Date();
+  const until = new Date(now.getFullYear(), now.getMonth()+1, RESCUE_NEXT_DAYS);
+  const untilLbl = `${RESCUE_NEXT_DAYS} ${MONTHS[until.getMonth()]}`;
+  const left  = dsMois - jours + RESCUE_NEXT_DAYS;     // jours restants (fin du mois + 10 jours)
   const dispo = soldeGlobal();                         // argent disponible maintenant
-  const reste = Math.max(0, projec - depMois);         // dépenses encore prévues d'ici la fin du mois
+  const reste = Math.round(depMois/jours*left);        // dépenses prévues d'ici le 10 du mois suivant
   if(reste <= dispo){ box.innerHTML = ""; return; }
 
   const manque = reste - Math.max(0, dispo);           // ce qui manquerait au rythme actuel
@@ -1913,25 +1918,22 @@ function renderRescue(cur, jours, dsMois, depMois, parJour, projec){
   }
   const cuts = rows.filter(r=>r.cut>=1).sort((a,b)=>b.cut-a.cut);
 
-  /* --- argent mobilisable --- */
-  const goalsSaved = S.goals.reduce((a,g)=>a+(g.saved||0), 0);
+  /* --- argent récupérable (l'épargne n'est pas proposée) --- */
   const lent = sumLent();
   const extra = [];
   if(lent>0)         extra.push(["🤝", "Demander le remboursement de l'argent prêté", lent]);
-  if(S.reserve>0)    extra.push(["🛟", "Puiser dans ta réserve de sécurité", S.reserve]);
-  if(goalsSaved>0)   extra.push(["🎯", "Reprendre provisoirement sur tes objectifs d'épargne", goalsSaved]);
 
   const line=(k,v)=>`<div class="statline"><span class="sl">${k}</span><span class="sv">${v}</span></div>`;
   box.innerHTML = `<div class="card rescue">
     <div class="section-title">🚨 Éviter le découvert</div>
     <div class="alert bad"><span class="ico">⚠️</span><div>${dispo<0
-      ? `Tu es déjà à découvert de <span class="amt">${fmtF(-dispo)}</span>.${reste?` Au rythme actuel, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici la fin du mois.`:""}`
-      : `Au rythme actuel, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici la fin du mois, mais il ne te reste que <span class="amt">${fmtF(dispo)}</span>. Il manquerait <span class="amt">${fmtF(manque)}</span>.`}</div></div>
+      ? `Tu es déjà à découvert de <span class="amt">${fmtF(-dispo)}</span>.${reste?` Au rythme actuel, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici le ${untilLbl}.`:""}`
+      : `Au rythme actuel, tu dépenserais encore <span class="amt">${fmtF(reste)}</span> d'ici le ${untilLbl}, mais il ne te reste que <span class="amt">${fmtF(dispo)}</span>. Il manquerait <span class="amt">${fmtF(manque)}</span>.`}</div></div>
 
     ${left>0 ? `<div class="rs-goal">
-      <div class="rs-k">Pour finir le mois sans découvert</div>
+      <div class="rs-k">Pour tenir sans découvert jusqu'au ${untilLbl}</div>
       <div class="rs-v">${dispo>0 ? `${fmtF(perDay)} <small>max / jour</small>` : `0 FCFA <small>de dépense en plus</small>`}</div>
-      <div class="rs-h">pendant les ${left} jour${left>1?"s":""} restant${left>1?"s":""} · aujourd'hui tu es à ${fmtF(parJour)} / jour${effort>0?` (−${effort} %)`:""}</div>
+      <div class="rs-h">pendant ${left} jour${left>1?"s":""} · aujourd'hui tu es à ${fmtF(parJour)} / jour${effort>0?` (−${effort} %)`:""}</div>
     </div>` : ""}
 
     ${cuts.length ? `<div class="rs-sub">Où réduire</div>
@@ -1941,10 +1943,10 @@ function renderRescue(cur, jours, dsMois, depMois, parJour, projec){
                     `<span style="color:var(--green)">−${fmt(r.cut)}</span>`);
       }).join("")}` : ""}
 
-    ${extra.length ? `<div class="rs-sub">Argent que tu peux mobiliser</div>
+    ${extra.length ? `<div class="rs-sub">Argent que tu peux récupérer</div>
       ${extra.map(([i,k,v])=>line(`${i} ${k}`, fmt(v))).join("")}` : ""}
 
-    <div class="rs-tip">💡 Reporte les achats non urgents au mois prochain et note chaque dépense pour suivre ton plafond du jour.</div>
+    <div class="rs-tip">💡 Reporte les achats non urgents après le ${untilLbl} et note chaque dépense pour suivre ton plafond du jour.</div>
   </div>`;
 }
 
